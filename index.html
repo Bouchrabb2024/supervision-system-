@@ -440,6 +440,10 @@ tbody .empty {
 .badge.tier-encourage { background: #c6f6d5; color: #22543d; }
 .badge.tier-honor { background: #e9d8fd; color: #553c9a; }
 .badge.tier-catchup { background: #fed7d7; color: #9b2c2c; }
+.badge.stage-notice1 { background: #fefcbf; color: #744210; }
+.badge.stage-notice2 { background: #feebc8; color: #7b341e; }
+.badge.stage-excuse { background: #fed7aa; color: #7c2d12; border: 1px solid #ea580c; }
+.badge.stage-expulsion { background: linear-gradient(135deg,#e53e3e,#9b2c2c); color: #fff; }
 
 .health-alert {
   background: #fff5f5;
@@ -749,6 +753,7 @@ input[type="number"] { text-align: right; }
     <button data-tab="teachers">🧑‍🏫 الأساتذة والمواد</button>
     <button data-tab="attendance">📝 الغياب اليومي</button>
     <button data-tab="notices">📅 الغيابات الشهري</button>
+    <button data-tab="absnotices">🚨 إشعارات الغياب</button>
     <button data-tab="grades">📊 كشف النقط</button>
     <button data-tab="timetable">📅 استعمال الزمن</button>
     <button data-tab="data">⚙️ الإعدادات</button>
@@ -784,6 +789,9 @@ let state = {
   monthlyStudyHours: {},
   catchupHours: {},
   teacherFreeSlots: {},
+  absenceNotices: [],
+  classNoticeCounters: {},
+  absenceTracking: {},
   ttDays: ["الأحد","الاثنين","الثلاثاء","الأربعاء","الخميس"],
   ttSlots: 7
 };
@@ -794,6 +802,7 @@ let monthState = { classId: '', month: '' };
 let currentTtClassId = '';
 let currentScheduleTeacherId = '';
 let gradesState = { classId: '' };
+let absenceNoticeState = { filterClassId: '' };
 let classesViewState = { filterClassId: '', selected: new Set(), searchText: '' };
 
 // متغيرات التخزين المحلي (فقط لسطح المكتب)
@@ -975,6 +984,9 @@ async function loadState() {
       if (!state.monthlyStudyHours) state.monthlyStudyHours = {};
       if (!state.catchupHours) state.catchupHours = {};
       if (!state.teacherFreeSlots) state.teacherFreeSlots = {};
+      if (!state.absenceNotices) state.absenceNotices = [];
+      if (!state.classNoticeCounters) state.classNoticeCounters = {};
+      if (!state.absenceTracking) state.absenceTracking = {};
       if (!state.ttSlots || state.ttSlots < 7) state.ttSlots = 7;
     }
   } catch(e) { console.error('Load error', e); }
@@ -1471,6 +1483,188 @@ async function setMonthlyStudyHours(value) {
   if (hours > 0) state.monthlyStudyHours[monthState.month] = hours;
   else delete state.monthlyStudyHours[monthState.month];
   await saveState(); render();
+}
+
+// ============================================================
+//  نظام إشعارات الغياب (إشعار أول ← إشعار ثاني ← إعذار ← شطب)
+//  يعتمد على أيام الغياب الكامل المتتالية (أيام الدراسة فقط)
+// ============================================================
+const ABSENCE_STAGE_THRESHOLDS = { notice1: 4, notice2: 11, excuse: 18, expulsion: 32 };
+const ABSENCE_STAGE_ORDER = { notice1: 1, notice2: 2, excuse: 3, expulsion: 4 };
+const ABSENCE_STAGE_LABELS = {
+  notice1: { label: 'الإشعار الأول', cls: 'stage-notice1' },
+  notice2: { label: 'الإشعار الثاني', cls: 'stage-notice2' },
+  excuse: { label: 'الإعذار', cls: 'stage-excuse' },
+  expulsion: { label: 'الشطب', cls: 'stage-expulsion' }
+};
+const ARABIC_DAY_NAMES = ["الأحد","الاثنين","الثلاثاء","الأربعاء","الخميس","الجمعة","السبت"];
+
+function getScheduledHoursForDate(classId, dateStr) {
+  const d = new Date(dateStr + 'T00:00:00');
+  const dayName = ARABIC_DAY_NAMES[d.getDay()];
+  if (!state.ttDays.includes(dayName)) return 0;
+  let count = 0;
+  for (let slot = 1; slot <= state.ttSlots; slot++) {
+    const data = state.timetable[`${classId}_${dayName}_${slot}`];
+    if (data && (data.subjectId || data.teacherId)) count++;
+  }
+  return count;
+}
+function getConsecutiveFullAbsenceDays(student) {
+  let streak = 0;
+  const cursor = new Date(); cursor.setHours(0,0,0,0);
+  let daysChecked = 0;
+  while (daysChecked < 120) {
+    const dayName = ARABIC_DAY_NAMES[cursor.getDay()];
+    if (state.ttDays.includes(dayName)) {
+      const y = cursor.getFullYear(), m = String(cursor.getMonth()+1).padStart(2,'0'), d = String(cursor.getDate()).padStart(2,'0');
+      const dateStr = `${y}-${m}-${d}`;
+      const dayRecord = state.attendance[dateStr];
+      if (dayRecord && Object.prototype.hasOwnProperty.call(dayRecord, student.id)) {
+        const scheduled = getScheduledHoursForDate(student.classId, dateStr) || state.ttSlots;
+        const absentHours = Number(dayRecord[student.id] || 0);
+        if (scheduled > 0 && absentHours >= scheduled) streak++;
+        else break;
+      }
+      // لا يوجد تسجيل لهذا اليوم بعد — يُتجاوز دون كسر التسلسل
+    }
+    cursor.setDate(cursor.getDate() - 1);
+    daysChecked++;
+  }
+  return streak;
+}
+function getAbsenceStage(streakDays) {
+  if (streakDays >= ABSENCE_STAGE_THRESHOLDS.expulsion) return 'expulsion';
+  if (streakDays >= ABSENCE_STAGE_THRESHOLDS.excuse) return 'excuse';
+  if (streakDays >= ABSENCE_STAGE_THRESHOLDS.notice2) return 'notice2';
+  if (streakDays >= ABSENCE_STAGE_THRESHOLDS.notice1) return 'notice1';
+  return null;
+}
+function getNoticeStatusForStudent(student) {
+  const streak = getConsecutiveFullAbsenceDays(student);
+  const stage = getAbsenceStage(streak);
+  const tracking = state.absenceTracking[student.id];
+  let lastIssuedStage = tracking ? tracking.lastIssuedStage : null;
+  if (tracking && streak < tracking.streakAtLastIssue) lastIssuedStage = null; // انطلقت حلقة غياب جديدة
+  const needsIssuance = !!(stage && ABSENCE_STAGE_ORDER[stage] > (lastIssuedStage ? ABSENCE_STAGE_ORDER[lastIssuedStage] : 0));
+  return { streak, stage, lastIssuedStage, needsIssuance };
+}
+function renderAbsenceNotices() {
+  const filterClassId = absenceNoticeState.filterClassId;
+  let list = state.students;
+  if (filterClassId) list = list.filter(s => s.classId === filterClassId);
+  const rows = list.map(s => ({ s, status: getNoticeStatusForStudent(s) }))
+    .filter(x => x.status.stage);
+  rows.sort((a, b) => {
+    const rankA = ABSENCE_STAGE_ORDER[a.status.stage] || 0;
+    const rankB = ABSENCE_STAGE_ORDER[b.status.stage] || 0;
+    if (rankB !== rankA) return rankB - rankA;
+    return b.status.streak - a.status.streak;
+  });
+  const tableRows = rows.map(({ s, status }) => {
+    const stageInfo = ABSENCE_STAGE_LABELS[status.stage];
+    const lastInfo = status.lastIssuedStage ? ABSENCE_STAGE_LABELS[status.lastIssuedStage].label : '—';
+    const actionBtn = status.needsIssuance
+      ? `<button class="btn small success" onclick="issueAbsenceNotice('${s.id}')">✅ إصدار ${stageInfo.label}</button>`
+      : `<span style="color:var(--text-medium);font-size:12px;">تم إصدار ${lastInfo}</span>`;
+    return `<tr>
+      <td>${className(s.classId)}</td>
+      <td>${displayName(s)}</td>
+      <td>${status.streak} يوم</td>
+      <td><span class="badge ${stageInfo.cls}">${stageInfo.label}</span></td>
+      <td>${lastInfo}</td>
+      <td>${actionBtn}</td>
+    </tr>`;
+  }).join('');
+  const classOpts = `<option value="">— كل الأقسام —</option>` + state.classes.map(c => `<option value="${c.id}" ${c.id===filterClassId?'selected':''}>${c.name}</option>`).join('');
+
+  const logRows = [...state.absenceNotices].sort((a,b) => (b.issuedAt||0) - (a.issuedAt||0)).map(n => {
+    const st = state.students.find(x => x.id === n.studentId);
+    const info = ABSENCE_STAGE_LABELS[n.type];
+    return `<tr>
+      <td>${String(n.seq).padStart(2,'0')}</td>
+      <td>${className(n.classId)}</td>
+      <td>${st ? displayName(st) : '—'}</td>
+      <td><span class="badge ${info.cls}">${info.label}</span></td>
+      <td>${n.issuedDate}</td>
+      <td>${n.streakDays} يوم</td>
+      <td><button class="btn small secondary" onclick="printAbsenceNotice('${n.id}')">🖨️ طباعة</button></td>
+    </tr>`;
+  }).join('');
+
+  return `
+    <div class="card">
+      <h2>🚨 إشعارات الغياب المستحقة</h2>
+      <p style="font-size:13px;color:var(--text-medium);margin-bottom:8px;line-height:1.8;">
+        يُحسب تلقائياً من أيام الغياب الكامل المتتالية (أيام الدراسة فقط):<br>
+        <b>4 أيام</b> ← الإشعار الأول &nbsp;|&nbsp; <b>11 يوماً</b> ← الإشعار الثاني &nbsp;|&nbsp; <b>18 يوماً</b> ← الإعذار &nbsp;|&nbsp; <b>32 يوماً</b> ← الشطب.<br>
+        💡 يعتمد الحساب على تسجيل الغياب اليومي بانتظام؛ الأيام غير المُسجَّلة تُتجاوز دون كسر التسلسل.
+      </p>
+      <div class="row">
+        <div class="field"><label>تصفية حسب القسم</label><select onchange="absenceNoticeState.filterClassId=this.value; render();">${classOpts}</select></div>
+      </div>
+      <div class="table-responsive"><table><thead><tr><th>القسم</th><th>التلميذ</th><th>أيام الغياب المتتالية</th><th>المرحلة المستحقة</th><th>آخر إشعار صادر</th><th>الإجراء</th></tr></thead><tbody>${tableRows || '<tr><td colspan="6" class="empty">لا يوجد تلاميذ في مرحلة إشعار حالياً</td></tr>'}</tbody></table></div>
+    </div>
+    <div class="card">
+      <h2>📜 سجل الإشعارات الصادرة</h2>
+      <p style="font-size:12px;color:var(--text-medium);margin-bottom:8px;">الترقيم خاص بكل قسم على حدة، ويتسلسل مع كل عملية إصدار (إشعار أول/ثاني/إعذار/شطب) بغض النظر عن نوعها.</p>
+      <div class="table-responsive"><table><thead><tr><th>الرقم</th><th>القسم</th><th>التلميذ</th><th>النوع</th><th>التاريخ</th><th>أيام الغياب</th><th>طباعة</th></tr></thead><tbody>${logRows || '<tr><td colspan="7" class="empty">لا توجد إشعارات صادرة بعد</td></tr>'}</tbody></table></div>
+    </div>
+  `;
+}
+async function issueAbsenceNotice(studentId) {
+  const s = state.students.find(st => st.id === studentId);
+  if (!s) return;
+  const status = getNoticeStatusForStudent(s);
+  if (!status.needsIssuance) return;
+  const stageInfo = ABSENCE_STAGE_LABELS[status.stage];
+  if (!confirm(`تأكيد إصدار "${stageInfo.label}" للتلميذ ${displayName(s)}؟`)) return;
+  if (!state.classNoticeCounters[s.classId]) state.classNoticeCounters[s.classId] = 0;
+  state.classNoticeCounters[s.classId]++;
+  const seq = state.classNoticeCounters[s.classId];
+  state.absenceNotices.push({
+    id: uid('an'), seq, classId: s.classId, studentId: s.id, type: status.stage,
+    issuedDate: todayISO(), issuedAt: Date.now(), streakDays: status.streak
+  });
+  state.absenceTracking[s.id] = { lastIssuedStage: status.stage, streakAtLastIssue: status.streak };
+  await saveState(); render();
+  toast(`✅ تم إصدار ${stageInfo.label} برقم ${String(seq).padStart(2,'0')} لهذا القسم`);
+}
+function getGuardianInfo(s) {
+  if (s.custody === 'mother' && (s.motherName || s.motherPhone)) return { name: s.motherName || '—', phone: s.motherPhone || '—' };
+  if (s.custody === 'father' && (s.fatherName || s.fatherPhone)) return { name: s.fatherName || '—', phone: s.fatherPhone || '—' };
+  if (s.fatherName || s.fatherPhone) return { name: s.fatherName || '—', phone: s.fatherPhone || '—' };
+  if (s.motherName || s.motherPhone) return { name: s.motherName || '—', phone: s.motherPhone || '—' };
+  return { name: '—', phone: '—' };
+}
+function printAbsenceNotice(noticeId) {
+  const notice = state.absenceNotices.find(n => n.id === noticeId);
+  if (!notice) return;
+  const student = state.students.find(s => s.id === notice.studentId);
+  const info = ABSENCE_STAGE_LABELS[notice.type];
+  const guardian = student ? getGuardianInfo(student) : { name: '—', phone: '—' };
+  openModal(`
+    <h2>📄 ${info.label}</h2>
+    ${schoolMetaLine()}
+    <div style="border:2px solid var(--primary-dark);border-radius:12px;padding:20px;margin-top:10px;">
+      <p style="font-weight:800;color:var(--primary-dark);">الرقم: ${String(notice.seq).padStart(2,'0')}</p>
+      <div style="margin-top:10px;font-size:14px;line-height:2;">
+        <div><b>القسم:</b> ${className(notice.classId)}</div>
+        <div><b>التلميذ:</b> ${student ? displayName(student) : '—'}</div>
+        <div><b>نوع الإجراء:</b> ${info.label}</div>
+        <div><b>عدد أيام الغياب المتتالية:</b> ${notice.streakDays} يوماً</div>
+        <div><b>تاريخ الإصدار:</b> ${notice.issuedDate}</div>
+        <div><b>ولي الأمر:</b> ${guardian.name}</div>
+        <div><b>رقم الهاتف:</b> ${guardian.phone}</div>
+        <div><b>العنوان:</b> ${student && student.address ? student.address : '—'}</div>
+      </div>
+      <p style="margin-top:16px;color:var(--text-medium);font-size:12px;">⚠️ هذا نموذج مؤقت عام لحين تحديد النموذج الرسمي — سيُستبدل بنفس البيانات عند تجهيزه.</p>
+    </div>
+    <div style="display:flex;gap:10px;margin-top:16px;flex-wrap:wrap;">
+      <button class="btn" onclick="window.print()">🖨 طباعة</button>
+      <button class="btn secondary" onclick="closeModal()">إغلاق</button>
+    </div>
+  `);
 }
 
 // ============================================================
@@ -2336,6 +2530,7 @@ function render() {
     case 'teachers': content = renderTeachers(); break;
     case 'attendance': content = renderAttendance(); break;
     case 'notices': content = renderNotices(); break;
+    case 'absnotices': content = renderAbsenceNotices(); break;
     case 'grades': content = renderGrades(); break;
     case 'timetable': content = renderTimetable(); break;
     case 'data': content = renderData(); break;
