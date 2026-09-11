@@ -445,6 +445,39 @@ tbody .empty {
 .badge.stage-excuse { background: #fed7aa; color: #7c2d12; border: 1px solid #ea580c; }
 .badge.stage-expulsion { background: linear-gradient(135deg,#e53e3e,#9b2c2c); color: #fff; }
 
+/* ---------- وثائق إشعارات الغياب الرسمية ---------- */
+.official-doc {
+  font-family: 'Amiri', 'Traditional Arabic', serif;
+  font-size: 15px;
+  line-height: 2;
+  color: #111;
+  background: #fff;
+  border: 2px solid #000;
+  border-radius: 4px;
+  padding: 18px 22px;
+  margin-top: 10px;
+}
+.official-doc .doc-national { text-align: center; font-weight: 700; font-size: 16px; margin-bottom: 2px; }
+.official-doc .doc-ministry { text-align: center; font-weight: 700; margin-bottom: 10px; }
+.official-doc .doc-topgrid { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; flex-wrap: wrap; margin-bottom: 16px; }
+.official-doc .doc-institute { text-align: right; font-size: 14px; flex: 0 1 46%; }
+.official-doc .doc-recipient { text-align: left; font-size: 14px; flex: 0 1 46%; }
+.official-doc .doc-blank { display: inline-block; border-bottom: 1px dotted #333; min-width: 140px; max-width: 100%; padding: 0 4px; vertical-align: bottom; word-break: break-word; white-space: normal; }
+.official-doc .doc-blank-line { border-bottom: 1px dotted #333; height: 20px; margin-bottom: 4px; }
+.official-doc .doc-title { text-align: center; font-weight: 700; font-size: 17px; margin: 14px 0; }
+.official-doc .doc-subject { font-weight: 700; margin-bottom: 12px; }
+.official-doc .doc-body p { margin-bottom: 10px; white-space: normal; overflow-wrap: break-word; }
+.official-doc .doc-signblock { margin-top: 18px; display: flex; justify-content: space-between; align-items: flex-end; flex-wrap: wrap; gap: 10px; }
+.official-doc .doc-signblock .left { text-align: right; font-size: 14px; }
+.official-doc .doc-signblock .right { text-align: center; font-weight: 700; }
+@media print {
+  .official-doc { border: 2px solid #000; }
+}
+@media (max-width: 520px) {
+  .official-doc .doc-topgrid { flex-direction: column; gap: 14px; }
+  .official-doc .doc-institute, .official-doc .doc-recipient { flex: 1 1 100%; }
+}
+
 .health-alert {
   background: #fff5f5;
   color: #e53e3e;
@@ -939,6 +972,14 @@ async function deleteDirHandle() {
 
 function getSupervisorName() { return localStorage.getItem('sijil_supervisor') || ''; }
 function saveSupervisorName(value) { localStorage.setItem('sijil_supervisor', value); }
+function getDirectorName() { return localStorage.getItem('sijil_director') || ''; }
+function saveDirectorName(value) { localStorage.setItem('sijil_director', value); }
+function getEduDirectorate() { return localStorage.getItem('sijil_edu_directorate') || ''; }
+function saveEduDirectorate(value) { localStorage.setItem('sijil_edu_directorate', value); }
+function getLocationLine() { return localStorage.getItem('sijil_location_line') || ''; }
+function saveLocationLine(value) { localStorage.setItem('sijil_location_line', value); }
+function getCityName() { return localStorage.getItem('sijil_city_name') || ''; }
+function saveCityName(value) { localStorage.setItem('sijil_city_name', value); }
 
 function buildExportPayload() {
   return {
@@ -946,7 +987,11 @@ function buildExportPayload() {
     meta: {
       schoolName: document.getElementById('schoolName').value,
       schoolYear: document.getElementById('schoolYear').value,
-      supervisorName: getSupervisorName()
+      supervisorName: getSupervisorName(),
+      directorName: getDirectorName(),
+      eduDirectorate: getEduDirectorate(),
+      locationLine: getLocationLine(),
+      cityName: getCityName()
     },
     savedAt: new Date().toISOString()
   };
@@ -1510,8 +1555,10 @@ function getScheduledHoursForDate(classId, dateStr) {
   }
   return count;
 }
-function getConsecutiveFullAbsenceDays(student) {
+function getAbsenceStreakInfo(student) {
   let streak = 0;
+  let startDate = null;
+  let pendingWeekend = 0; // أيام عطلة (جمعة/سبت) بانتظار تأكيدها بغياب أسبق
   const cursor = new Date(); cursor.setHours(0,0,0,0);
   let daysChecked = 0;
   while (daysChecked < 120) {
@@ -1521,17 +1568,31 @@ function getConsecutiveFullAbsenceDays(student) {
       const dateStr = `${y}-${m}-${d}`;
       const dayRecord = state.attendance[dateStr];
       if (dayRecord && Object.prototype.hasOwnProperty.call(dayRecord, student.id)) {
-        const scheduled = getScheduledHoursForDate(student.classId, dateStr) || state.ttSlots;
         const absentHours = Number(dayRecord[student.id] || 0);
-        if (scheduled > 0 && absentHours >= scheduled) streak++;
-        else break;
+        const scheduled = getScheduledHoursForDate(student.classId, dateStr);
+        // إذا كان استعمال الزمن غير مُعبَّأ لهذا اليوم، نعتبر أي غياب مُسجَّل (>0) غياباً كاملاً لليوم
+        const isFullAbsent = scheduled > 0 ? (absentHours >= scheduled) : (absentHours > 0);
+        if (isFullAbsent) {
+          // تأكيد أي أيام عطلة معلّقة توسّطت غيابين، واحتسابها ضمن السلسلة
+          streak += 1 + pendingWeekend;
+          pendingWeekend = 0;
+          startDate = dateStr;
+        } else {
+          break; // حضور مؤكد لهذا اليوم — نهاية السلسلة، ولا تُحتسب أي عطلة معلّقة لم تُؤكَّد
+        }
       }
       // لا يوجد تسجيل لهذا اليوم بعد — يُتجاوز دون كسر التسلسل
+    } else {
+      // يوم عطلة (الجمعة/السبت) — يُحتسب مبدئياً، ويُؤكَّد فقط إذا توسّط غياباً قبله وغياباً بعده
+      pendingWeekend++;
     }
     cursor.setDate(cursor.getDate() - 1);
     daysChecked++;
   }
-  return streak;
+  return { streak, startDate };
+}
+function getConsecutiveFullAbsenceDays(student) {
+  return getAbsenceStreakInfo(student).streak;
 }
 function getAbsenceStage(streakDays) {
   if (streakDays >= ABSENCE_STAGE_THRESHOLDS.expulsion) return 'expulsion';
@@ -1550,6 +1611,8 @@ function getNoticeStatusForStudent(student) {
   return { streak, stage, lastIssuedStage, needsIssuance };
 }
 function renderAbsenceNotices() {
+  const autoIssued = autoIssuePendingNotices();
+  if (autoIssued.length) saveState();
   const filterClassId = absenceNoticeState.filterClassId;
   let list = state.students;
   if (filterClassId) list = list.filter(s => s.classId === filterClassId);
@@ -1563,17 +1626,17 @@ function renderAbsenceNotices() {
   });
   const tableRows = rows.map(({ s, status }) => {
     const stageInfo = ABSENCE_STAGE_LABELS[status.stage];
-    const lastInfo = status.lastIssuedStage ? ABSENCE_STAGE_LABELS[status.lastIssuedStage].label : '—';
-    const actionBtn = status.needsIssuance
-      ? `<button class="btn small success" onclick="issueAbsenceNotice('${s.id}')">✅ إصدار ${stageInfo.label}</button>`
-      : `<span style="color:var(--text-medium);font-size:12px;">تم إصدار ${lastInfo}</span>`;
+    const currentNotice = getPriorNoticeOfType(s.id, status.stage, Date.now());
+    const printBtn = currentNotice
+      ? `<button class="btn small secondary" onclick="printAbsenceNotice('${currentNotice.id}')">🖨️ طباعة</button>`
+      : `<span style="color:var(--text-medium);font-size:12px;">قيد الإصدار…</span>`;
     return `<tr>
       <td>${className(s.classId)}</td>
       <td>${displayName(s)}</td>
       <td>${status.streak} يوم</td>
       <td><span class="badge ${stageInfo.cls}">${stageInfo.label}</span></td>
-      <td>${lastInfo}</td>
-      <td>${actionBtn}</td>
+      <td>${currentNotice ? String(currentNotice.seq).padStart(2,'0') : '—'}</td>
+      <td>${printBtn}</td>
     </tr>`;
   }).join('');
   const classOpts = `<option value="">— كل الأقسام —</option>` + state.classes.map(c => `<option value="${c.id}" ${c.id===filterClassId?'selected':''}>${c.name}</option>`).join('');
@@ -1594,23 +1657,36 @@ function renderAbsenceNotices() {
 
   return `
     <div class="card">
-      <h2>🚨 إشعارات الغياب المستحقة</h2>
+      <h2>🚨 التلاميذ في مرحلة إشعار حالياً</h2>
       <p style="font-size:13px;color:var(--text-medium);margin-bottom:8px;line-height:1.8;">
-        يُحسب تلقائياً من أيام الغياب الكامل المتتالية (أيام الدراسة فقط):<br>
-        <b>4 أيام</b> ← الإشعار الأول &nbsp;|&nbsp; <b>11 يوماً</b> ← الإشعار الثاني &nbsp;|&nbsp; <b>18 يوماً</b> ← الإعذار &nbsp;|&nbsp; <b>32 يوماً</b> ← الشطب.<br>
+        <b>يصدر الإشعار تلقائياً</b> بمجرد بلوغ التلميذ العتبة (لا حاجة لأي إجراء يدوي)، وتبقى فقط الطباعة يدوية:<br>
+        <b>4 أيام</b> ← الإشعار الأول &nbsp;|&nbsp; <b>11 يوماً</b> ← الإشعار الثاني &nbsp;|&nbsp; <b>18 يوماً</b> ← الإعذار &nbsp;|&nbsp; <b>32 يوماً</b> ← الشطب. (أيام الدراسة الكاملة المتتالية فقط)<br>
         💡 يعتمد الحساب على تسجيل الغياب اليومي بانتظام؛ الأيام غير المُسجَّلة تُتجاوز دون كسر التسلسل.
       </p>
       <div class="row">
         <div class="field"><label>تصفية حسب القسم</label><select onchange="absenceNoticeState.filterClassId=this.value; render();">${classOpts}</select></div>
       </div>
-      <div class="table-responsive"><table><thead><tr><th>القسم</th><th>التلميذ</th><th>أيام الغياب المتتالية</th><th>المرحلة المستحقة</th><th>آخر إشعار صادر</th><th>الإجراء</th></tr></thead><tbody>${tableRows || '<tr><td colspan="6" class="empty">لا يوجد تلاميذ في مرحلة إشعار حالياً</td></tr>'}</tbody></table></div>
+      <div class="table-responsive"><table><thead><tr><th>القسم</th><th>التلميذ</th><th>أيام الغياب المتتالية</th><th>المرحلة الحالية</th><th>رقم الإشعار</th><th>طباعة</th></tr></thead><tbody>${tableRows || '<tr><td colspan="6" class="empty">لا يوجد تلاميذ في مرحلة إشعار حالياً</td></tr>'}</tbody></table></div>
     </div>
     <div class="card">
-      <h2>📜 سجل الإشعارات الصادرة</h2>
+      <h2>📜 سجل كل الإشعارات الصادرة</h2>
       <p style="font-size:12px;color:var(--text-medium);margin-bottom:8px;">الترقيم خاص بكل قسم على حدة، ويتسلسل مع كل عملية إصدار (إشعار أول/ثاني/إعذار/شطب) بغض النظر عن نوعها.</p>
       <div class="table-responsive"><table><thead><tr><th>الرقم</th><th>القسم</th><th>التلميذ</th><th>النوع</th><th>التاريخ</th><th>أيام الغياب</th><th>طباعة</th></tr></thead><tbody>${logRows || '<tr><td colspan="7" class="empty">لا توجد إشعارات صادرة بعد</td></tr>'}</tbody></table></div>
     </div>
   `;
+}
+function performIssueNotice(s, status) {
+  if (!state.classNoticeCounters[s.classId]) state.classNoticeCounters[s.classId] = 0;
+  state.classNoticeCounters[s.classId]++;
+  const seq = state.classNoticeCounters[s.classId];
+  const streakInfo = getAbsenceStreakInfo(s);
+  const notice = {
+    id: uid('an'), seq, classId: s.classId, studentId: s.id, type: status.stage,
+    issuedDate: todayISO(), issuedAt: Date.now(), streakDays: status.streak, absenceStartDate: streakInfo.startDate
+  };
+  state.absenceNotices.push(notice);
+  state.absenceTracking[s.id] = { lastIssuedStage: status.stage, streakAtLastIssue: status.streak };
+  return notice;
 }
 async function issueAbsenceNotice(studentId) {
   const s = state.students.find(st => st.id === studentId);
@@ -1619,16 +1695,21 @@ async function issueAbsenceNotice(studentId) {
   if (!status.needsIssuance) return;
   const stageInfo = ABSENCE_STAGE_LABELS[status.stage];
   if (!confirm(`تأكيد إصدار "${stageInfo.label}" للتلميذ ${displayName(s)}؟`)) return;
-  if (!state.classNoticeCounters[s.classId]) state.classNoticeCounters[s.classId] = 0;
-  state.classNoticeCounters[s.classId]++;
-  const seq = state.classNoticeCounters[s.classId];
-  state.absenceNotices.push({
-    id: uid('an'), seq, classId: s.classId, studentId: s.id, type: status.stage,
-    issuedDate: todayISO(), issuedAt: Date.now(), streakDays: status.streak
-  });
-  state.absenceTracking[s.id] = { lastIssuedStage: status.stage, streakAtLastIssue: status.streak };
+  const notice = performIssueNotice(s, status);
   await saveState(); render();
-  toast(`✅ تم إصدار ${stageInfo.label} برقم ${String(seq).padStart(2,'0')} لهذا القسم`);
+  toast(`✅ تم إصدار ${stageInfo.label} برقم ${String(notice.seq).padStart(2,'0')} لهذا القسم`);
+}
+// إصدار تلقائي صامت (بدون تأكيد) لكل التلاميذ الذين بلغوا عتبة جديدة — الطباعة تبقى يدوية دائماً
+function autoIssuePendingNotices() {
+  const issued = [];
+  state.students.forEach(s => {
+    const status = getNoticeStatusForStudent(s);
+    if (status.needsIssuance) {
+      const notice = performIssueNotice(s, status);
+      issued.push({ student: s, notice });
+    }
+  });
+  return issued;
 }
 function getGuardianInfo(s) {
   if (s.custody === 'mother' && (s.motherName || s.motherPhone)) return { name: s.motherName || '—', phone: s.motherPhone || '—' };
@@ -1637,34 +1718,167 @@ function getGuardianInfo(s) {
   if (s.motherName || s.motherPhone) return { name: s.motherName || '—', phone: s.motherPhone || '—' };
   return { name: '—', phone: '—' };
 }
+function getPriorNoticeOfType(studentId, type, beforeTimestamp) {
+  const matches = state.absenceNotices.filter(n => n.studentId === studentId && n.type === type && n.issuedAt <= beforeTimestamp);
+  if (!matches.length) return null;
+  matches.sort((a, b) => b.issuedAt - a.issuedAt);
+  return matches[0];
+}
+function formatDocDate(dateStr) {
+  if (!dateStr) return '..................';
+  return dateStr;
+}
+function docBlank(value, minWidth) {
+  const w = minWidth || 140;
+  return `<span class="doc-blank" style="min-width:${w}px;">${value ? value : '&nbsp;'}</span>`;
+}
+function buildDocHeader(includeMinistry, seq) {
+  const eduDir = getEduDirectorate() || '..........................';
+  const schoolNameEl = document.getElementById('schoolName');
+  const schoolName = (schoolNameEl && schoolNameEl.value) || '..........................';
+  const locLine = getLocationLine() || '..........................';
+  return `
+    <div class="doc-national">الجمهورية الجزائرية الديمقراطية الشعبية</div>
+    ${includeMinistry ? `<div class="doc-ministry">وزارة التربية الوطنية</div>` : ''}
+    <div class="doc-topgrid">
+      <div class="doc-institute">
+        <div>${eduDir}</div>
+        <div>${schoolName}</div>
+        <div>${locLine}</div>
+        <div>الرقم : ${String(seq).padStart(2,'0')}</div>
+      </div>
+      <div id="docRecipientSlot"></div>
+    </div>
+  `;
+}
+function buildSignBlockNotice(issuedDate) {
+  return `
+    <div class="doc-signblock">
+      <div style="flex:1 1 260px;">
+        <div>توقيع ولي الأمر :</div>
+        <div class="doc-blank-line" style="max-width:220px;"></div>
+        <div>- بطاقة التعريف الوطنية رقم : ${docBlank(null,160)}</div>
+        <div>- الصادرة بتاريخ : ${docBlank(null,160)}</div>
+        <div>- عن : ${docBlank(null,160)}</div>
+      </div>
+      <div style="text-align:center;">
+        <div>${getCityName() ? getCityName() + ' ' : ''}يوم : ${docBlank(issuedDate,120)}</div>
+        <div style="font-weight:700;margin-top:12px;">المدير</div>
+        <div style="height:60px;"></div>
+        <div style="font-weight:700;">${getDirectorName() || ''}</div>
+      </div>
+    </div>
+  `;
+}
+function buildSignBlockDecision(issuedDate) {
+  return `
+    <div class="doc-signblock">
+      <div></div>
+      <div style="text-align:center;">
+        <div>${getCityName() ? getCityName() + ' ' : ''}يوم : ${docBlank(issuedDate,120)}</div>
+        <div style="font-weight:700;margin-top:12px;">المدير</div>
+        <div style="height:60px;"></div>
+        <div style="font-weight:700;">${getDirectorName() || ''}</div>
+      </div>
+    </div>
+  `;
+}
 function printAbsenceNotice(noticeId) {
   const notice = state.absenceNotices.find(n => n.id === noticeId);
   if (!notice) return;
   const student = state.students.find(s => s.id === notice.studentId);
-  const info = ABSENCE_STAGE_LABELS[notice.type];
-  const guardian = student ? getGuardianInfo(student) : { name: '—', phone: '—' };
-  openModal(`
-    <h2>📄 ${info.label}</h2>
-    ${schoolMetaLine()}
-    <div style="border:2px solid var(--primary-dark);border-radius:12px;padding:20px;margin-top:10px;">
-      <p style="font-weight:800;color:var(--primary-dark);">الرقم: ${String(notice.seq).padStart(2,'0')}</p>
-      <div style="margin-top:10px;font-size:14px;line-height:2;">
-        <div><b>القسم:</b> ${className(notice.classId)}</div>
-        <div><b>التلميذ:</b> ${student ? displayName(student) : '—'}</div>
-        <div><b>نوع الإجراء:</b> ${info.label}</div>
-        <div><b>عدد أيام الغياب المتتالية:</b> ${notice.streakDays} يوماً</div>
-        <div><b>تاريخ الإصدار:</b> ${notice.issuedDate}</div>
-        <div><b>ولي الأمر:</b> ${guardian.name}</div>
-        <div><b>رقم الهاتف:</b> ${guardian.phone}</div>
-        <div><b>العنوان:</b> ${student && student.address ? student.address : '—'}</div>
+  const guardian = student ? getGuardianInfo(student) : { name: '', phone: '' };
+  const studentName = student ? displayName(student) : '';
+  const clsName = className(notice.classId);
+  const startDate = formatDocDate(notice.absenceStartDate);
+  let bodyHtml = '';
+
+  if (notice.type === 'notice1' || notice.type === 'notice2') {
+    const titleNum = notice.type === 'notice1' ? 'الأول' : 'الثاني';
+    bodyHtml = `
+      ${buildDocHeader(false, notice.seq)}
+      <div class="doc-title">اشعار بالتغيب</div>
+      <div class="doc-subject">الموضوع : الإشعار ${titleNum} بالغياب</div>
+      <div class="doc-body">
+        <p>يؤسفني أن أبلغكم بأن ابنكم / ابنتكم : ${docBlank(studentName, 300)}</p>
+        <p>من القسم : ${docBlank(clsName,110)} في حالة تغيب منذ : ${docBlank(startDate,110)} الى يومنا هذا</p>
+        <p>و نرجوا الرد عن هذا الإشعار فور الإتصال به مع أول بريد تم التوقيع عليه</p>
+        <div class="doc-blank-line"></div>
+        <div class="doc-blank-line"></div>
+        <div class="doc-blank-line"></div>
       </div>
-      <p style="margin-top:16px;color:var(--text-medium);font-size:12px;">⚠️ هذا نموذج مؤقت عام لحين تحديد النموذج الرسمي — سيُستبدل بنفس البيانات عند تجهيزه.</p>
+      ${buildSignBlockNotice(notice.issuedDate)}
+    `;
+  } else if (notice.type === 'excuse') {
+    const n1 = getPriorNoticeOfType(notice.studentId, 'notice1', notice.issuedAt);
+    const n2 = getPriorNoticeOfType(notice.studentId, 'notice2', notice.issuedAt);
+    bodyHtml = `
+      ${buildDocHeader(true, notice.seq)}
+      <div class="doc-subject" style="margin-top:6px;">الموضوع : الإعذار المضمون</div>
+      <div class="doc-body">
+        <p>يؤسفني أن أبلغكم بأن ابنكم / ابنتكم : ${docBlank(studentName, 300)}</p>
+        <p>من القسم : ${docBlank(clsName,110)} في حالة تغيب منذ : ${docBlank(startDate,110)} الى يومنا هذا و لم تعطي</p>
+        <p>أية إجابة لإرسالاتي المؤرخة و المرفقة كما يلي :</p>
+        <p>الإشعار الأول تحت الرقم : ${docBlank(n1 ? String(n1.seq).padStart(2,'0') : null,90)} بتاريخ : ${docBlank(n1 ? n1.issuedDate : null,120)}</p>
+        <p>الإشعار الثاني تحت الرقم : ${docBlank(n2 ? String(n2.seq).padStart(2,'0') : null,90)} بتاريخ : ${docBlank(n2 ? n2.issuedDate : null,120)}</p>
+        <p>و أذكركم أن ابنكم إذ لم يلتحق قبل ${docBlank(null,140)} سيشطب إسمه من القوائم الرسمية طبقا</p>
+        <p>للمادة 21 من القرار الوزاري رقم 833 الصادر بتاريخ 1991/11/13 م</p>
+        <p style="text-align:left;">نسخة الى ولي التلميذ<br>نسخة في ملف التلميذ</p>
+      </div>
+      ${buildSignBlockDecision(notice.issuedDate)}
+    `;
+  } else if (notice.type === 'expulsion') {
+    const n1 = getPriorNoticeOfType(notice.studentId, 'notice1', notice.issuedAt);
+    const n2 = getPriorNoticeOfType(notice.studentId, 'notice2', notice.issuedAt);
+    const n3 = getPriorNoticeOfType(notice.studentId, 'excuse', notice.issuedAt);
+    bodyHtml = `
+      ${buildDocHeader(true, notice.seq)}
+      <div class="doc-subject" style="margin-top:6px;">الموضوع : قرار الشطب</div>
+      <div class="doc-body">
+        <p>يؤسفني أن أبلغكم بأن ابنكم / ابنتكم : ${docBlank(studentName, 300)}</p>
+        <p>من القسم : ${docBlank(clsName,110)} في حالة تغيب منذ : ${docBlank(startDate,110)} الى يومنا هذا والذي</p>
+        <p>اشعرناكم بغيابه في التواريخ التالية :</p>
+        <p>الإشعار الأول تحت الرقم : ${docBlank(n1 ? String(n1.seq).padStart(2,'0') : null,90)} بتاريخ : ${docBlank(n1 ? n1.issuedDate : null,120)}</p>
+        <p>الإشعار الثاني تحت الرقم : ${docBlank(n2 ? String(n2.seq).padStart(2,'0') : null,90)} بتاريخ : ${docBlank(n2 ? n2.issuedDate : null,120)}</p>
+        <p>الإعذار المضمون تحت الرقم : ${docBlank(n3 ? String(n3.seq).padStart(2,'0') : null,90)} بتاريخ : ${docBlank(n3 ? n3.issuedDate : null,120)}</p>
+        <p>قد تم الشطب على إسمه من القوائم الرسمية طبقا للمادة 21 من القرار</p>
+        <p>الوزاري رقم 833 الصادر بتاريخ 1991/11/13 م</p>
+      </div>
+      ${buildSignBlockDecision(notice.issuedDate)}
+    `;
+  }
+
+  const studentAddress = student && student.address ? student.address : '';
+  const recipientHtml = `<div class="doc-recipient"><div>الى السيد ( ة ) : ${docBlank(guardian.name,160)}</div><div>العنوان : ${docBlank(studentAddress,160)}</div></div>`;
+  bodyHtml = bodyHtml.replace('<div id="docRecipientSlot"></div>', recipientHtml);
+
+  openModal(`
+    <h2>📄 ${ABSENCE_STAGE_LABELS[notice.type].label}</h2>
+    <div id="printAreaWrap"><div class="official-doc">${bodyHtml}</div></div>
+    <div class="row" style="margin-top:12px;">
+      <div class="field" style="max-width:140px;"><label>عدد النسخ</label><input type="number" min="1" max="10" value="1" id="noticeCopiesInput"></div>
     </div>
     <div style="display:flex;gap:10px;margin-top:16px;flex-wrap:wrap;">
-      <button class="btn" onclick="window.print()">🖨 طباعة</button>
+      <button class="btn" onclick="printNoticeWithCopies()">🖨 طباعة</button>
       <button class="btn secondary" onclick="closeModal()">إغلاق</button>
     </div>
   `);
+}
+function printNoticeWithCopies() {
+  const input = document.getElementById('noticeCopiesInput');
+  const n = Math.max(1, Math.min(10, Number(input ? input.value : 1) || 1));
+  const wrap = document.getElementById('printAreaWrap');
+  const original = wrap ? wrap.querySelector('.official-doc') : null;
+  if (wrap && original && n > 1) {
+    wrap.innerHTML = '';
+    for (let i = 0; i < n; i++) {
+      const clone = original.cloneNode(true);
+      clone.style.pageBreakAfter = i < n - 1 ? 'always' : 'auto';
+      if (i > 0) clone.style.marginTop = '16px';
+      wrap.appendChild(clone);
+    }
+  }
+  window.print();
 }
 
 // ============================================================
@@ -1972,6 +2186,19 @@ function renderData() {
 
   return `
     <div class="card">
+      <h2>🏛️ بيانات الرأسية الرسمية للوثائق</h2>
+      <p style="font-size:12px;color:var(--text-medium);margin-bottom:8px;">تُستخدم هذه الحقول فقط في طباعة الإشعارات الرسمية (الإشعار الأول/الثاني، الإعذار، قرار الشطب) لتطابق النموذج الرسمي.</p>
+      <div class="row">
+        <div class="field"><label>مديرية التربية</label><input type="text" id="eduDirectorateInput" value="${getEduDirectorate()}" oninput="saveEduDirectorate(this.value)" placeholder="مثال: مديرية التربية لولاية بشار"></div>
+        <div class="field"><label>الولاية (تحت اسم المؤسسة)</label><input type="text" id="locationLineInput" value="${getLocationLine()}" oninput="saveLocationLine(this.value)" placeholder="مثال: بشار ولاية بشار"></div>
+      </div>
+      <div class="row">
+        <div class="field"><label>اسم المدينة (لسطر "... في: التاريخ")</label><input type="text" id="cityNameInput" value="${getCityName()}" oninput="saveCityName(this.value)" placeholder="مثال: بشار"></div>
+        <div class="field"><label>اسم مدير المؤسسة</label><input type="text" id="directorNameInput" value="${getDirectorName()}" oninput="saveDirectorName(this.value)" placeholder="اسم المدير"></div>
+      </div>
+    </div>
+
+    <div class="card">
       <h2>🗄 النسخ الاحتياطي التلقائي</h2>
       <div class="row">
         <div class="field">
@@ -2124,7 +2351,12 @@ async function delTeacher(id) {
 async function setHours(sid, value) {
   if (!state.attendance[attState.date]) state.attendance[attState.date] = {};
   state.attendance[attState.date][sid] = Number(value) || 0;
+  const autoIssued = autoIssuePendingNotices();
   await saveState();
+  if (autoIssued.length) {
+    render();
+    toast(`🚨 تم إصدار ${autoIssued.length} إشعار غياب تلقائياً`);
+  }
 }
 function toggleSelect(sid) {
   if (classesViewState.selected.has(sid)) classesViewState.selected.delete(sid);
@@ -2408,9 +2640,10 @@ async function registerAbsenceBySlot(studentId, slotNumber) {
   if (!student) return;
   if (!state.attendance[attState.date]) state.attendance[attState.date] = {};
   state.attendance[attState.date][studentId] = Number(state.attendance[attState.date][studentId] || 0) + 1;
+  const autoIssued = autoIssuePendingNotices();
   await saveState();
   render();
-  toast(`تم تسجيل غياب الحصة ${slotNumber} لـ ${displayName(student)}`);
+  toast(`تم تسجيل غياب الحصة ${slotNumber} لـ ${displayName(student)}` + (autoIssued.length ? ` — 🚨 صدر ${autoIssued.length} إشعار غياب تلقائياً` : ''));
 }
 
 // ============================================================
@@ -2441,6 +2674,10 @@ function importData(event) {
         if (imported.meta && imported.meta.supervisorName !== undefined) {
           saveSupervisorName(imported.meta.supervisorName);
         }
+        if (imported.meta && imported.meta.directorName !== undefined) saveDirectorName(imported.meta.directorName);
+        if (imported.meta && imported.meta.eduDirectorate !== undefined) saveEduDirectorate(imported.meta.eduDirectorate);
+        if (imported.meta && imported.meta.locationLine !== undefined) saveLocationLine(imported.meta.locationLine);
+        if (imported.meta && imported.meta.cityName !== undefined) saveCityName(imported.meta.cityName);
         await saveState(); location.reload();
       } else toast('⚠️ ملف غير صالح');
     } catch (err) { toast('⚠️ خطأ في الملف'); }
@@ -2553,6 +2790,8 @@ window.onload = async function() {
   if (fsApiSupported()) {
     await tryRestoreDirPermission();
   }
+  const autoIssuedOnLoad = autoIssuePendingNotices();
+  if (autoIssuedOnLoad.length) await saveState();
   setupTabs();
   render();
   scheduleAutoBackup();
