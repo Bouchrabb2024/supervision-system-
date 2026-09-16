@@ -470,15 +470,12 @@ tbody .empty {
 .official-doc .doc-signblock { margin-top: 18px; display: flex; justify-content: space-between; align-items: flex-end; flex-wrap: wrap; gap: 10px; }
 .official-doc .doc-signblock .left { text-align: right; font-size: 14px; }
 .official-doc .doc-signblock .right { text-align: center; font-weight: 700; }
-.official-doc .doc-signrow { display: flex; justify-content: space-between; gap: 10px; margin-top: 10px; text-align: center; }
-.official-doc .doc-signrow > div { flex: 1 1 33%; }
 @media print {
   .official-doc { border: 2px solid #000; }
 }
 @media (max-width: 520px) {
   .official-doc .doc-topgrid { flex-direction: column; gap: 14px; }
   .official-doc .doc-institute, .official-doc .doc-recipient { flex: 1 1 100%; }
-  .official-doc .doc-signrow { flex-direction: column; gap: 16px; }
 }
 
 .health-alert {
@@ -911,6 +908,20 @@ function schoolMetaLine() {
   return `<div style="text-align:center;margin-bottom:10px;font-family:'Cairo',sans-serif;">
     ${line1 ? `<div style="font-weight:800;color:var(--primary-dark);font-size:15px;">${line1}</div>` : ''}
     ${supervisor ? `<div style="font-weight:600;color:var(--text-medium);font-size:12px;margin-top:2px;">المشرف التربوي: ${supervisor}</div>` : ''}
+  </div>`;
+}
+function supervisorCounselorFooter() {
+  return `<div dir="rtl" style="display:flex;flex-direction:row;justify-content:space-between;gap:16px;margin-top:22px;padding-top:14px;border-top:1px solid var(--secondary);font-size:13px;flex-wrap:wrap;font-family:'Cairo',sans-serif;">
+    <div style="flex:1;text-align:center;min-width:140px;">
+      <div style="font-weight:700;color:var(--primary-dark);">المشرف التربوي</div>
+      <div style="height:26px;"></div>
+      <div>${getSupervisorName() || ''}</div>
+    </div>
+    <div style="flex:1;text-align:center;min-width:140px;">
+      <div style="font-weight:700;color:var(--primary-dark);">المستشار</div>
+      <div style="height:26px;"></div>
+      <div>${getCounselorName() || ''}</div>
+    </div>
   </div>`;
 }
 
@@ -1796,42 +1807,37 @@ function buildDocHeader(includeMinistry, seq) {
     </div>
   `;
 }
-function buildAdminSignRow(issuedDate) {
+function buildSignBlockNotice(issuedDate) {
   return `
-    <div style="text-align:center;margin-top:18px;">${getCityName() ? getCityName() + ' ' : ''}يوم : ${docBlank(issuedDate,120)}</div>
-    <div class="doc-signrow">
-      <div>
-        <div style="font-weight:700;">المشرف التربوي</div>
-        <div style="height:55px;"></div>
-        <div style="font-weight:700;">${getSupervisorName() || ''}</div>
+    <div class="doc-signblock">
+      <div style="flex:1 1 260px;">
+        <div>توقيع ولي الأمر :</div>
+        <div class="doc-blank-line" style="max-width:220px;"></div>
+        <div>- بطاقة التعريف الوطنية رقم : ${docBlank(null,160)}</div>
+        <div>- الصادرة بتاريخ : ${docBlank(null,160)}</div>
+        <div>- عن : ${docBlank(null,160)}</div>
       </div>
-      <div>
-        <div style="font-weight:700;">المستشار</div>
-        <div style="height:55px;"></div>
-        <div style="font-weight:700;">${getCounselorName() || ''}</div>
-      </div>
-      <div>
-        <div style="font-weight:700;">المدير</div>
-        <div style="height:55px;"></div>
+      <div style="text-align:center;">
+        <div>${getCityName() ? getCityName() + ' ' : ''}يوم : ${docBlank(issuedDate,120)}</div>
+        <div style="font-weight:700;margin-top:12px;">المدير</div>
+        <div style="height:60px;"></div>
         <div style="font-weight:700;">${getDirectorName() || ''}</div>
       </div>
     </div>
   `;
 }
-function buildSignBlockNotice(issuedDate) {
-  return `
-    <div style="margin-top:8px;">
-      <div>توقيع ولي الأمر :</div>
-      <div class="doc-blank-line" style="max-width:220px;"></div>
-      <div>- بطاقة التعريف الوطنية رقم : ${docBlank(null,160)}</div>
-      <div>- الصادرة بتاريخ : ${docBlank(null,160)}</div>
-      <div>- عن : ${docBlank(null,160)}</div>
-    </div>
-    ${buildAdminSignRow(issuedDate)}
-  `;
-}
 function buildSignBlockDecision(issuedDate) {
-  return buildAdminSignRow(issuedDate);
+  return `
+    <div class="doc-signblock">
+      <div></div>
+      <div style="text-align:center;">
+        <div>${getCityName() ? getCityName() + ' ' : ''}يوم : ${docBlank(issuedDate,120)}</div>
+        <div style="font-weight:700;margin-top:12px;">المدير</div>
+        <div style="height:60px;"></div>
+        <div style="font-weight:700;">${getDirectorName() || ''}</div>
+      </div>
+    </div>
+  `;
 }
 function printAbsenceNotice(noticeId) {
   const notice = state.absenceNotices.find(n => n.id === noticeId);
@@ -2469,14 +2475,28 @@ function toggleSelect(sid) {
   render();
 }
 async function transferStudents() {
-  const target = prompt('أدخل ID القسم الهدف (انسخه من القائمة):');
-  if (!target) return;
-  if (!state.classes.some(c => c.id === target)) return toast('القسم غير موجود');
+  if (!classesViewState.selected.size) return toast('لم يتم تحديد أي تلميذ');
+  const classOpts = state.classes
+    .map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+  openModal(`
+    <h2>🔀 نقل التلاميذ المحددين (${classesViewState.selected.size})</h2>
+    <div class="field"><label>القسم الهدف</label><select id="transferTargetClass">${classOpts}</select></div>
+    <div style="display:flex;gap:10px;margin-top:16px;flex-wrap:wrap;">
+      <button class="btn success" onclick="confirmTransferStudents()">✅ تأكيد النقل</button>
+      <button class="btn secondary" onclick="closeModal()">إلغاء</button>
+    </div>
+  `);
+}
+async function confirmTransferStudents() {
+  const select = document.getElementById('transferTargetClass');
+  const target = select ? select.value : '';
+  if (!target) return toast('اختر القسم الهدف');
   let moved = 0;
   state.students.forEach(s => { if (classesViewState.selected.has(s.id)) { s.classId = target; moved++; } });
   classesViewState.selected.clear();
+  closeModal();
   await saveState(); render();
-  toast(`✅ تم نقل ${moved} تلميذ`);
+  toast(`✅ تم نقل ${moved} تلميذ إلى ${className(target)}`);
 }
 
 // ============================================================
@@ -2862,6 +2882,7 @@ function renderClassRosterModal(classId) {
     <h2>📋 قائمة القسم: ${className(classId)}</h2>
     <div id="classRosterPrintArea">${schoolMetaLine()}
       <div class="table-responsive"><table><thead><tr><th>الاسم</th><th>اللقب</th><th>تاريخ ومكان الميلاد</th><th>الكفالة</th><th>العنوان</th><th>رقم الهاتف</th></tr></thead><tbody>${rows}</tbody></table></div>
+      ${supervisorCounselorFooter()}
     </div>
     <div style="display:flex;gap:10px;margin-top:16px;flex-wrap:wrap;">
       <button class="btn" onclick="window.print()">🖨 طباعة</button>
@@ -2904,6 +2925,7 @@ function renderHealthListModal(classId) {
     <h2>🏥 الحالات الصحية: ${className(classId)}</h2>
     <div id="healthListPrintArea">${schoolMetaLine()}
       <div class="table-responsive"><table><thead><tr><th>الاسم</th><th>اللقب</th><th>الحالة الصحية</th><th>هاتف ولي الأمر</th></tr></thead><tbody>${rows}</tbody></table></div>
+      ${supervisorCounselorFooter()}
     </div>
     <div style="display:flex;gap:10px;margin-top:16px;flex-wrap:wrap;">
       <button class="btn" onclick="window.print()">🖨 طباعة</button>
@@ -2934,6 +2956,7 @@ function renderSocialListModal(classId) {
     <p style="font-size:12px;color:var(--text-medium);margin-bottom:8px;">تشمل هذه القائمة كل حالة غير "متزوجين" (منفصلين، وفاة الأب، وفاة الأم)، مع اسم الكفيل في حال الانفصال أو الوفاة.</p>
     <div id="socialListPrintArea">${schoolMetaLine()}
       <div class="table-responsive"><table><thead><tr><th>الاسم</th><th>اللقب</th><th>الحالة العائلية</th><th>الكفالة</th><th>هاتف ولي الأمر</th></tr></thead><tbody>${rows}</tbody></table></div>
+      ${supervisorCounselorFooter()}
     </div>
     <div style="display:flex;gap:10px;margin-top:16px;flex-wrap:wrap;">
       <button class="btn" onclick="window.print()">🖨 طباعة</button>
