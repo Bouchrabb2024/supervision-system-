@@ -470,12 +470,15 @@ tbody .empty {
 .official-doc .doc-signblock { margin-top: 18px; display: flex; justify-content: space-between; align-items: flex-end; flex-wrap: wrap; gap: 10px; }
 .official-doc .doc-signblock .left { text-align: right; font-size: 14px; }
 .official-doc .doc-signblock .right { text-align: center; font-weight: 700; }
+.official-doc .doc-signrow { display: flex; justify-content: space-between; gap: 10px; margin-top: 10px; text-align: center; }
+.official-doc .doc-signrow > div { flex: 1 1 33%; }
 @media print {
   .official-doc { border: 2px solid #000; }
 }
 @media (max-width: 520px) {
   .official-doc .doc-topgrid { flex-direction: column; gap: 14px; }
   .official-doc .doc-institute, .official-doc .doc-recipient { flex: 1 1 100%; }
+  .official-doc .doc-signrow { flex-direction: column; gap: 16px; }
 }
 
 .health-alert {
@@ -836,7 +839,21 @@ let currentTtClassId = '';
 let currentScheduleTeacherId = '';
 let gradesState = { classId: '' };
 let absenceNoticeState = { filterClassId: '' };
-let classesViewState = { filterClassId: '', selected: new Set(), searchText: '' };
+let classesViewState = { filterClassId: '', selected: new Set(), searchText: '', sortBy: 'name' };
+function sortStudents(list, sortBy) {
+  const arr = [...list];
+  if (sortBy === 'firstName') arr.sort((a,b) => (a.firstName||'').localeCompare((b.firstName||''), 'ar'));
+  else if (sortBy === 'lastName') arr.sort((a,b) => (a.lastName||'').localeCompare((b.lastName||''), 'ar'));
+  else if (sortBy === 'regNumber') arr.sort((a,b) => (a.regNumber||'').localeCompare((b.regNumber||''), undefined, {numeric:true}));
+  else arr.sort((a,b) => displayName(a).localeCompare(displayName(b), 'ar'));
+  return arr;
+}
+const SORT_OPTIONS_HTML = (selected) => `
+  <option value="name" ${selected==='name'?'selected':''}>الاسم الكامل</option>
+  <option value="firstName" ${selected==='firstName'?'selected':''}>الاسم</option>
+  <option value="lastName" ${selected==='lastName'?'selected':''}>اللقب</option>
+  <option value="regNumber" ${selected==='regNumber'?'selected':''}>رقم التعريف</option>
+`;
 
 // متغيرات التخزين المحلي (فقط لسطح المكتب)
 let localDirHandle = null;
@@ -898,7 +915,19 @@ function schoolMetaLine() {
 }
 
 const statusLabels = { 'married':'متزوجين', 'separated':'منفصلين', 'death_father':'وفاة الأب', 'death_mother':'وفاة الأم' };
-const custodyLabels = { 'father':'الأب', 'mother':'الأم', 'other':'آخر' };
+const custodyLabels = { 'father':'الأب', 'mother':'الأم', 'grandparent':'أحد الجدين', 'uncle_paternal':'أحد الأعمام', 'uncle_maternal':'أحد الأخوال', 'other':'آخر' };
+const separationReasonLabels = { 'divorce':'طلاق', 'imprisonment':'سجن أحد الأبوين', 'father_work':'عمل الأب' };
+const CUSTODY_NAME_TYPES = ['grandparent','uncle_paternal','uncle_maternal','other'];
+function formatCustody(s) {
+  const label = custodyLabels[s.custody] || '—';
+  if (CUSTODY_NAME_TYPES.includes(s.custody) && s.custodyGuardianName) return `${label} (${s.custodyGuardianName})`;
+  return label;
+}
+function formatFamilyStatus(s) {
+  const label = statusLabels[s.parentStatus] || '—';
+  if (s.parentStatus === 'separated' && s.separationReason && separationReasonLabels[s.separationReason]) return `${label} - ${separationReasonLabels[s.separationReason]}`;
+  return label;
+}
 
 function toast(msg) {
   const t = document.getElementById('toast');
@@ -974,6 +1003,8 @@ function getSupervisorName() { return localStorage.getItem('sijil_supervisor') |
 function saveSupervisorName(value) { localStorage.setItem('sijil_supervisor', value); }
 function getDirectorName() { return localStorage.getItem('sijil_director') || ''; }
 function saveDirectorName(value) { localStorage.setItem('sijil_director', value); }
+function getCounselorName() { return localStorage.getItem('sijil_counselor') || ''; }
+function saveCounselorName(value) { localStorage.setItem('sijil_counselor', value); }
 function getEduDirectorate() { return localStorage.getItem('sijil_edu_directorate') || ''; }
 function saveEduDirectorate(value) { localStorage.setItem('sijil_edu_directorate', value); }
 function getLocationLine() { return localStorage.getItem('sijil_location_line') || ''; }
@@ -989,6 +1020,7 @@ function buildExportPayload() {
       schoolYear: document.getElementById('schoolYear').value,
       supervisorName: getSupervisorName(),
       directorName: getDirectorName(),
+      counselorName: getCounselorName(),
       eduDirectorate: getEduDirectorate(),
       locationLine: getLocationLine(),
       cityName: getCityName()
@@ -1351,7 +1383,16 @@ function scheduleAutoBackup() {
 // ============================================================
 //  دوال التصيير
 // ============================================================
+function goToTab(tab) {
+  activeTab = tab;
+  render();
+  document.querySelectorAll('nav.tabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+}
+function getActiveNoticeStudentsCount() {
+  return state.students.filter(s => getNoticeStatusForStudent(s).stage).length;
+}
 function renderDash() {
+  const activeNotices = getActiveNoticeStudentsCount();
   return `
     <div class="stats-grid">
       <div class="stat"><div class="n">${state.classes.length}</div><div class="l">الأقسام</div></div>
@@ -1359,6 +1400,11 @@ function renderDash() {
       <div class="stat"><div class="n">${state.teachers.length}</div><div class="l">الأساتذة</div></div>
       <div class="stat"><input type="text" class="stat-input" id="supervisorName" value="${getSupervisorName()}" oninput="saveSupervisorName(this.value)" placeholder="—"><div class="l">المشرف التربوي</div></div>
     </div>
+    ${activeNotices > 0 ? `
+    <div class="card" style="border-right:6px solid #e53e3e;cursor:pointer;" onclick="goToTab('absnotices')">
+      <h2>🚨 تنبيه غياب</h2>
+      <p style="color:var(--text-medium);">يوجد حالياً <b style="color:#e53e3e;">${activeNotices}</b> تلميذ${activeNotices>1?'اً':''} في مرحلة إشعار غياب (إشعار/إعذار/شطب) — اضغط هنا للاطلاع والطباعة.</p>
+    </div>` : ''}
     <div class="card"><h2>مرحباً بك</h2><p style="color:var(--text-medium);">نظام الإشراف التربوي الرقمي</p></div>
   `;
 }
@@ -1366,7 +1412,7 @@ function renderDash() {
 function renderClasses() {
   const classOptions = state.classes.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
   let classRows = state.classes.map(c => `
-    <tr><td><b>${c.name}</b></td><td>${studentsOf(c.id).length}</td><td><button class="btn small secondary" onclick="renderBulkCardsModal('${c.id}')">🖨 بطاقات</button> <button class="btn small danger" onclick="delClass('${c.id}')">حذف</button></td></tr>
+    <tr><td><b>${c.name}</b></td><td>${studentsOf(c.id).length}</td><td><button class="btn small secondary" onclick="renderBulkCardsModal('${c.id}')">🖨 بطاقات</button> <button class="btn small secondary" onclick="renderClassRosterModal('${c.id}')">📋 قائمة القسم</button> <button class="btn small secondary" onclick="renderHealthListModal('${c.id}')">🏥 الحالات الصحية</button> <button class="btn small secondary" onclick="renderSocialListModal('${c.id}')">👪 الحالات الاجتماعية</button> <button class="btn small danger" onclick="delClass('${c.id}')">حذف</button></td></tr>
   `).join('');
 
   let filtered = state.students;
@@ -1376,7 +1422,7 @@ function renderClasses() {
   } else if (classesViewState.filterClassId) {
     filtered = filtered.filter(s => s.classId === classesViewState.filterClassId);
   }
-  filtered.sort((a,b) => displayName(a).localeCompare(displayName(b), 'ar'));
+  filtered = sortStudents(filtered, classesViewState.sortBy);
 
   let studentRows = filtered.map((s, idx) => {
     const healthBadge = s.healthCondition ? `<span class="health-alert">🩺 ${s.healthCondition}</span>` : '';
@@ -1393,7 +1439,7 @@ function renderClasses() {
       <td>${s.avgT2 || '—'}</td>
       <td>${s.avgT3 || '—'}</td>
       <td><b>${annualAvg !== null ? annualAvg : '—'}</b></td>
-      <td>${statusLabels[s.parentStatus]||'—'} (${custodyLabels[s.custody]||'—'})</td>
+      <td>${formatFamilyStatus(s)} (${formatCustody(s)})</td>
       <td>${scholarshipBadge}</td>
       <td>${s.fatherPhone || s.motherPhone || '—'}</td>
       <td><button class="btn small secondary" onclick="viewCard('${s.id}')">🪪</button> <button class="btn small secondary" onclick="editStudent('${s.id}')">✏️</button> <button class="btn small danger" onclick="delStudent('${s.id}')">×</button></td>
@@ -1434,7 +1480,11 @@ function renderClasses() {
       </div>
       <div class="row">
         <div class="field"><label>الحالة العائلية</label><select id="s_status"><option value="married">متزوجين</option><option value="separated">منفصلين</option><option value="death_father">وفاة الأب</option><option value="death_mother">وفاة الأم</option></select></div>
-        <div class="field"><label>الكفالة</label><select id="s_custody"><option value="father">الأب</option><option value="mother">الأم</option><option value="other">آخر</option></select></div>
+        <div class="field"><label>سبب الانفصال (إن وُجد)</label><select id="s_sepreason"><option value="">—</option><option value="divorce">طلاق</option><option value="imprisonment">سجن أحد الأبوين</option><option value="father_work">عمل الأب</option></select></div>
+        <div class="field"><label>الكفالة</label><select id="s_custody"><option value="father">الأب</option><option value="mother">الأم</option><option value="grandparent">أحد الجدين</option><option value="uncle_paternal">أحد الأعمام</option><option value="uncle_maternal">أحد الأخوال</option><option value="other">آخر</option></select></div>
+        <div class="field"><label>اسم الكفيل الكامل (لأحد الجدين/الأعمام/الأخوال/آخر)</label><input type="text" id="s_custodyname" placeholder="يُملأ فقط عند الحاجة"></div>
+      </div>
+      <div class="row">
         <div class="field"><label>منحة 5000</label><select id="s_scholar"><option value="no">لا</option><option value="yes">نعم</option></select></div>
         <div class="field"><label>العنوان</label><input type="text" id="s_addr"></div>
       </div>
@@ -1450,12 +1500,15 @@ function renderClasses() {
       <div class="row">
         <div class="field"><label>🔍 بحث عن تلميذ (كل الأقسام)</label><input type="text" id="studentSearch" value="${classesViewState.searchText||''}" oninput="classesViewState.searchText=this.value; render();" placeholder="اكتب الاسم أو رقم التعريف"></div>
         <div class="field"><label>تصفية حسب القسم</label><select id="filterClass" onchange="classesViewState.filterClassId=this.value; render();" ${searchQ ? 'disabled style="opacity:0.5;"' : ''}>${filterOpts}</select></div>
+        <div class="field"><label>ترتيب حسب</label><select onchange="classesViewState.sortBy=this.value; render();">${SORT_OPTIONS_HTML(classesViewState.sortBy)}</select></div>
         <button class="btn secondary" onclick="classesViewState.selected.clear(); render();">إلغاء التحديد</button>
         <button class="btn success" onclick="transferStudents()" ${classesViewState.selected.size ? '' : 'style="opacity:0.5;pointer-events:none;"'}>🔀 نقل المحددين (${classesViewState.selected.size})</button>
       </div>
       ${searchQ ? `<p style="font-size:12px;color:var(--text-medium);margin-bottom:8px;">🔎 نتائج البحث عبر كل الأقسام (${filtered.length})</p>` : ''}
       <div class="table-responsive"><table><thead><tr><th>تحديد</th><th>#</th><th>رقم التعريف</th><th>الاسم</th><th>القسم</th><th>ف1</th><th>ف2</th><th>ف3</th><th>السنوي</th><th>الحالة</th><th>المنحة</th><th>هاتف</th><th>إجراءات</th></tr></thead><tbody>${studentRows || '<tr><td colspan="13" class="empty">لا يوجد تلاميذ</td></tr>'}</tbody></table></div>
     </div>
+
+    ${renderDataQualityCard()}
   `;
 }
 
@@ -1688,17 +1741,6 @@ function performIssueNotice(s, status) {
   state.absenceTracking[s.id] = { lastIssuedStage: status.stage, streakAtLastIssue: status.streak };
   return notice;
 }
-async function issueAbsenceNotice(studentId) {
-  const s = state.students.find(st => st.id === studentId);
-  if (!s) return;
-  const status = getNoticeStatusForStudent(s);
-  if (!status.needsIssuance) return;
-  const stageInfo = ABSENCE_STAGE_LABELS[status.stage];
-  if (!confirm(`تأكيد إصدار "${stageInfo.label}" للتلميذ ${displayName(s)}؟`)) return;
-  const notice = performIssueNotice(s, status);
-  await saveState(); render();
-  toast(`✅ تم إصدار ${stageInfo.label} برقم ${String(notice.seq).padStart(2,'0')} لهذا القسم`);
-}
 // إصدار تلقائي صامت (بدون تأكيد) لكل التلاميذ الذين بلغوا عتبة جديدة — الطباعة تبقى يدوية دائماً
 function autoIssuePendingNotices() {
   const issued = [];
@@ -1712,6 +1754,9 @@ function autoIssuePendingNotices() {
   return issued;
 }
 function getGuardianInfo(s) {
+  if (CUSTODY_NAME_TYPES.includes(s.custody) && s.custodyGuardianName) {
+    return { name: s.custodyGuardianName, phone: s.fatherPhone || s.motherPhone || '—' };
+  }
   if (s.custody === 'mother' && (s.motherName || s.motherPhone)) return { name: s.motherName || '—', phone: s.motherPhone || '—' };
   if (s.custody === 'father' && (s.fatherName || s.fatherPhone)) return { name: s.fatherName || '—', phone: s.fatherPhone || '—' };
   if (s.fatherName || s.fatherPhone) return { name: s.fatherName || '—', phone: s.fatherPhone || '—' };
@@ -1751,37 +1796,42 @@ function buildDocHeader(includeMinistry, seq) {
     </div>
   `;
 }
-function buildSignBlockNotice(issuedDate) {
+function buildAdminSignRow(issuedDate) {
   return `
-    <div class="doc-signblock">
-      <div style="flex:1 1 260px;">
-        <div>توقيع ولي الأمر :</div>
-        <div class="doc-blank-line" style="max-width:220px;"></div>
-        <div>- بطاقة التعريف الوطنية رقم : ${docBlank(null,160)}</div>
-        <div>- الصادرة بتاريخ : ${docBlank(null,160)}</div>
-        <div>- عن : ${docBlank(null,160)}</div>
+    <div style="text-align:center;margin-top:18px;">${getCityName() ? getCityName() + ' ' : ''}يوم : ${docBlank(issuedDate,120)}</div>
+    <div class="doc-signrow">
+      <div>
+        <div style="font-weight:700;">المشرف التربوي</div>
+        <div style="height:55px;"></div>
+        <div style="font-weight:700;">${getSupervisorName() || ''}</div>
       </div>
-      <div style="text-align:center;">
-        <div>${getCityName() ? getCityName() + ' ' : ''}يوم : ${docBlank(issuedDate,120)}</div>
-        <div style="font-weight:700;margin-top:12px;">المدير</div>
-        <div style="height:60px;"></div>
+      <div>
+        <div style="font-weight:700;">المستشار</div>
+        <div style="height:55px;"></div>
+        <div style="font-weight:700;">${getCounselorName() || ''}</div>
+      </div>
+      <div>
+        <div style="font-weight:700;">المدير</div>
+        <div style="height:55px;"></div>
         <div style="font-weight:700;">${getDirectorName() || ''}</div>
       </div>
     </div>
   `;
 }
-function buildSignBlockDecision(issuedDate) {
+function buildSignBlockNotice(issuedDate) {
   return `
-    <div class="doc-signblock">
-      <div></div>
-      <div style="text-align:center;">
-        <div>${getCityName() ? getCityName() + ' ' : ''}يوم : ${docBlank(issuedDate,120)}</div>
-        <div style="font-weight:700;margin-top:12px;">المدير</div>
-        <div style="height:60px;"></div>
-        <div style="font-weight:700;">${getDirectorName() || ''}</div>
-      </div>
+    <div style="margin-top:8px;">
+      <div>توقيع ولي الأمر :</div>
+      <div class="doc-blank-line" style="max-width:220px;"></div>
+      <div>- بطاقة التعريف الوطنية رقم : ${docBlank(null,160)}</div>
+      <div>- الصادرة بتاريخ : ${docBlank(null,160)}</div>
+      <div>- عن : ${docBlank(null,160)}</div>
     </div>
+    ${buildAdminSignRow(issuedDate)}
   `;
+}
+function buildSignBlockDecision(issuedDate) {
+  return buildAdminSignRow(issuedDate);
 }
 function printAbsenceNotice(noticeId) {
   const notice = state.absenceNotices.find(n => n.id === noticeId);
@@ -2136,6 +2186,53 @@ function exportTeacherFreePdf() {
 // ============================================================
 //  دوال الإعدادات (مع دعم الهاتف)
 // ============================================================
+// ---------- فحص جودة البيانات ----------
+function checkDuplicateRegNumbers() {
+  const map = {};
+  state.students.forEach(s => {
+    const id = (s.regNumber || '').trim();
+    if (!id) return;
+    if (!map[id]) map[id] = [];
+    map[id].push(s);
+  });
+  return Object.entries(map).filter(([id, arr]) => arr.length > 1);
+}
+function checkMatchingPhones() {
+  const map = {};
+  state.students.forEach(s => {
+    const phones = [...new Set([s.fatherPhone, s.motherPhone].map(p => (p || '').trim()).filter(Boolean))];
+    phones.forEach(phone => {
+      if (!map[phone]) map[phone] = new Set();
+      map[phone].add(s.id);
+    });
+  });
+  const groups = [];
+  Object.entries(map).forEach(([phone, idSet]) => {
+    if (idSet.size > 1) {
+      groups.push({ phone, students: [...idSet].map(id => state.students.find(s => s.id === id)).filter(Boolean) });
+    }
+  });
+  return groups;
+}
+function renderDataQualityCard() {
+  const dupIds = checkDuplicateRegNumbers();
+  const phoneGroups = checkMatchingPhones();
+  const dupIdsHtml = dupIds.length
+    ? dupIds.map(([id, arr]) => `<div style="margin-bottom:8px;font-size:13px;"><span class="badge danger">تكرار</span> رقم التعريف <b>${id}</b>: ${arr.map(s => displayName(s) + ' (' + className(s.classId) + ')').join('، ')}</div>`).join('')
+    : `<p style="color:var(--text-medium);font-size:13px;">✅ لا يوجد تكرار في أرقام التعريف.</p>`;
+  const phoneHtml = phoneGroups.length
+    ? phoneGroups.map(g => `<div style="margin-bottom:8px;font-size:13px;"><span class="badge warning">هاتف مشترك</span> ${g.phone}: ${g.students.map(s => displayName(s) + ' (' + className(s.classId) + ')').join('، ')}</div>`).join('')
+    : `<p style="color:var(--text-medium);font-size:13px;">✅ لا يوجد تطابق في أرقام الهواتف.</p>`;
+  return `
+    <div class="card">
+      <h2>🔍 فحص جودة البيانات</h2>
+      <h3 style="font-size:14px;margin-bottom:8px;color:var(--primary-dark);">أرقام تعريف مكررة</h3>
+      ${dupIdsHtml}
+      <h3 style="font-size:14px;margin:14px 0 8px;color:var(--primary-dark);">أرقام هواتف مشتركة (إخوة محتملون)</h3>
+      ${phoneHtml}
+    </div>
+  `;
+}
 function renderData() {
   const last = lastBackupTime();
   const lastText = last ? new Date(last).toLocaleString('ar') : 'لم تُنشأ بعد';
@@ -2195,6 +2292,7 @@ function renderData() {
       <div class="row">
         <div class="field"><label>اسم المدينة (لسطر "... في: التاريخ")</label><input type="text" id="cityNameInput" value="${getCityName()}" oninput="saveCityName(this.value)" placeholder="مثال: بشار"></div>
         <div class="field"><label>اسم مدير المؤسسة</label><input type="text" id="directorNameInput" value="${getDirectorName()}" oninput="saveDirectorName(this.value)" placeholder="اسم المدير"></div>
+        <div class="field"><label>اسم المستشار (التوجيه)</label><input type="text" id="counselorNameInput" value="${getCounselorName()}" oninput="saveCounselorName(this.value)" placeholder="اسم المستشار"></div>
       </div>
     </div>
 
@@ -2287,8 +2385,13 @@ async function addStudent() {
   const classId = document.getElementById('s_class').value;
   if (!firstName && !lastName) return toast('أدخل الاسم');
   if (!classId) return toast('اختر القسم');
+  const regNumber = document.getElementById('s_reg').value.trim();
+  if (regNumber) {
+    const dup = state.students.find(st => (st.regNumber || '').trim() === regNumber);
+    if (dup && !confirm(`⚠️ رقم التعريف "${regNumber}" مستخدم مسبقاً من قبل التلميذ ${displayName(dup)} (${className(dup.classId)}). هل تريد المتابعة رغم ذلك؟`)) return;
+  }
   const extra = {
-    regNumber: document.getElementById('s_reg').value.trim(),
+    regNumber,
     birthDate: document.getElementById('s_bdate').value,
     birthPlace: document.getElementById('s_bplace').value.trim(),
     healthCondition: document.getElementById('s_health').value.trim(),
@@ -2297,7 +2400,9 @@ async function addStudent() {
     motherName: document.getElementById('s_mname').value.trim(),
     motherPhone: document.getElementById('s_mphone').value.trim(),
     parentStatus: document.getElementById('s_status').value,
+    separationReason: document.getElementById('s_sepreason').value,
     custody: document.getElementById('s_custody').value,
+    custodyGuardianName: document.getElementById('s_custodyname').value.trim(),
     scholarship: document.getElementById('s_scholar').value,
     avgT1: document.getElementById('s_avg1').value.trim(),
     avgT2: document.getElementById('s_avg2').value.trim(),
@@ -2414,7 +2519,7 @@ function viewCard(id) {
       <div class="id-card-body">
         <div><b>📅 الميلاد:</b> ${s.birthDate||'—'} · ${s.birthPlace||'—'}</div>
         <div><b>👨 الأب:</b> ${fatherLine} · <b>👩 الأم:</b> ${motherLine}</div>
-        <div><b>⚖️ الحالة:</b> ${statusLabels[s.parentStatus]||'—'} · <b>الكفالة:</b> ${custodyLabels[s.custody]||'—'}</div>
+        <div><b>⚖️ الحالة:</b> ${formatFamilyStatus(s)} · <b>الكفالة:</b> ${formatCustody(s)}</div>
         <div><b>💰 المنحة:</b> ${scholarshipBadge}</div>
         <div><b>🩺 الصحة:</b> ${healthValue}</div>
         <div>📊 ${avgLine}</div>
@@ -2445,7 +2550,7 @@ function renderBulkCardsModal(classId) {
         </div>
         <div class="id-card-body">
           <div><b>👨 الأب:</b> ${fatherLine} · <b>👩 الأم:</b> ${motherLine}</div>
-          <div><b>⚖️ الحالة:</b> ${statusLabels[s.parentStatus]||'—'} · <b>الكفالة:</b> ${custodyLabels[s.custody]||'—'}</div>
+          <div><b>⚖️ الحالة:</b> ${formatFamilyStatus(s)} · <b>الكفالة:</b> ${formatCustody(s)}</div>
           <div><b>💰 المنحة:</b> ${scholarshipBadge}</div>
         </div>
       </div>
@@ -2480,7 +2585,11 @@ function editStudent(id) {
     <div class="field"><label>هاتف الأم</label><input type="text" id="e_mphone" value="${s.motherPhone||''}"></div></div>
     <div class="row">
       <div class="field"><label>الحالة العائلية</label><select id="e_status"><option value="married" ${s.parentStatus==='married'?'selected':''}>متزوجين</option><option value="separated" ${s.parentStatus==='separated'?'selected':''}>منفصلين</option><option value="death_father" ${s.parentStatus==='death_father'?'selected':''}>وفاة الأب</option><option value="death_mother" ${s.parentStatus==='death_mother'?'selected':''}>وفاة الأم</option></select></div>
-      <div class="field"><label>الكفالة</label><select id="e_custody"><option value="father" ${s.custody==='father'?'selected':''}>الأب</option><option value="mother" ${s.custody==='mother'?'selected':''}>الأم</option><option value="other" ${s.custody==='other'?'selected':''}>آخر</option></select></div>
+      <div class="field"><label>سبب الانفصال (إن وُجد)</label><select id="e_sepreason"><option value="" ${!s.separationReason?'selected':''}>—</option><option value="divorce" ${s.separationReason==='divorce'?'selected':''}>طلاق</option><option value="imprisonment" ${s.separationReason==='imprisonment'?'selected':''}>سجن أحد الأبوين</option><option value="father_work" ${s.separationReason==='father_work'?'selected':''}>عمل الأب</option></select></div>
+    </div>
+    <div class="row">
+      <div class="field"><label>الكفالة</label><select id="e_custody"><option value="father" ${s.custody==='father'?'selected':''}>الأب</option><option value="mother" ${s.custody==='mother'?'selected':''}>الأم</option><option value="grandparent" ${s.custody==='grandparent'?'selected':''}>أحد الجدين</option><option value="uncle_paternal" ${s.custody==='uncle_paternal'?'selected':''}>أحد الأعمام</option><option value="uncle_maternal" ${s.custody==='uncle_maternal'?'selected':''}>أحد الأخوال</option><option value="other" ${s.custody==='other'?'selected':''}>آخر</option></select></div>
+      <div class="field"><label>اسم الكفيل الكامل</label><input type="text" id="e_custodyname" value="${s.custodyGuardianName||''}" placeholder="عند الحاجة فقط"></div>
       <div class="field"><label>منحة 5000</label><select id="e_scholar"><option value="no" ${s.scholarship==='no'?'selected':''}>لا</option><option value="yes" ${s.scholarship==='yes'?'selected':''}>نعم</option></select></div>
       <div class="field"><label>العنوان</label><input type="text" id="e_addr" value="${s.address||''}"></div>
     </div>
@@ -2497,10 +2606,15 @@ function editStudent(id) {
 async function saveEdit(id) {
   const s = state.students.find(st => st.id === id);
   if (!s) return;
+  const newReg = document.getElementById('e_reg').value.trim();
+  if (newReg) {
+    const dup = state.students.find(st => st.id !== id && (st.regNumber || '').trim() === newReg);
+    if (dup && !confirm(`⚠️ رقم التعريف "${newReg}" مستخدم مسبقاً من قبل التلميذ ${displayName(dup)} (${className(dup.classId)}). هل تريد المتابعة رغم ذلك؟`)) return;
+  }
   s.firstName = document.getElementById('e_fname').value.trim();
   s.lastName = document.getElementById('e_lname').value.trim();
   s.classId = document.getElementById('e_class').value;
-  s.regNumber = document.getElementById('e_reg').value.trim();
+  s.regNumber = newReg;
   s.birthDate = document.getElementById('e_bdate').value;
   s.birthPlace = document.getElementById('e_bplace').value.trim();
   s.healthCondition = document.getElementById('e_health').value.trim();
@@ -2509,7 +2623,9 @@ async function saveEdit(id) {
   s.motherName = document.getElementById('e_mname').value.trim();
   s.motherPhone = document.getElementById('e_mphone').value.trim();
   s.parentStatus = document.getElementById('e_status').value;
+  s.separationReason = document.getElementById('e_sepreason').value;
   s.custody = document.getElementById('e_custody').value;
+  s.custodyGuardianName = document.getElementById('e_custodyname').value.trim();
   s.scholarship = document.getElementById('e_scholar').value;
   s.address = document.getElementById('e_addr').value.trim();
   s.avgT1 = document.getElementById('e_avg1').value.trim();
@@ -2675,6 +2791,7 @@ function importData(event) {
           saveSupervisorName(imported.meta.supervisorName);
         }
         if (imported.meta && imported.meta.directorName !== undefined) saveDirectorName(imported.meta.directorName);
+        if (imported.meta && imported.meta.counselorName !== undefined) saveCounselorName(imported.meta.counselorName);
         if (imported.meta && imported.meta.eduDirectorate !== undefined) saveEduDirectorate(imported.meta.eduDirectorate);
         if (imported.meta && imported.meta.locationLine !== undefined) saveLocationLine(imported.meta.locationLine);
         if (imported.meta && imported.meta.cityName !== undefined) saveCityName(imported.meta.cityName);
@@ -2690,7 +2807,7 @@ function exportExcel() {
     'تاريخ الميلاد': s.birthDate || '', 'مكان الميلاد': s.birthPlace || '',
     'الأب': s.fatherName || '', 'هاتف الأب': s.fatherPhone || '',
     'الأم': s.motherName || '', 'هاتف الأم': s.motherPhone || '',
-    'الحالة العائلية': statusLabels[s.parentStatus] || '', 'الكفالة': custodyLabels[s.custody] || '',
+    'الحالة العائلية': formatFamilyStatus(s), 'الكفالة': formatCustody(s),
     'المنحة': s.scholarship === 'yes' ? 'مستفيد' : 'غير مستفيد',
     'المعدل1': s.avgT1 || '', 'المعدل2': s.avgT2 || '', 'المعدل3': s.avgT3 || '', 'المعدل السنوي': computeAnnualAvg(s) !== null ? computeAnnualAvg(s) : '',
     'العنوان': s.address || '', 'الحالة الصحية': s.healthCondition || ''
@@ -2725,6 +2842,111 @@ function exportTimetablePdf() {
   if (!area) return toast('لا يوجد محتوى');
   toast('⏳ جاري تحضير PDF...');
   html2pdf().set({ margin: 8, filename: `جدول_${className(currentTtClassId)}.pdf`, image: { type: 'jpeg', quality: 0.98 }, html2canvas: { scale: 2 }, jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' } }).from(area).save().catch(() => toast('⚠️ خطأ في PDF'));
+}
+function renderClassRosterModal(classId) {
+  const list = sortStudents(studentsOf(classId), classesViewState.sortBy);
+  if (!list.length) return toast('لا يوجد تلاميذ');
+  const rows = list.map(s => {
+    const guardianPhone = getGuardianInfo(s).phone;
+    const birthInfo = [s.birthDate, s.birthPlace].filter(Boolean).join(' - ') || '—';
+    return `<tr>
+      <td>${s.firstName || '—'}</td>
+      <td>${s.lastName || '—'}</td>
+      <td>${birthInfo}</td>
+      <td>${formatCustody(s)}</td>
+      <td>${s.address || '—'}</td>
+      <td>${guardianPhone}</td>
+    </tr>`;
+  }).join('');
+  openModal(`
+    <h2>📋 قائمة القسم: ${className(classId)}</h2>
+    <div id="classRosterPrintArea">${schoolMetaLine()}
+      <div class="table-responsive"><table><thead><tr><th>الاسم</th><th>اللقب</th><th>تاريخ ومكان الميلاد</th><th>الكفالة</th><th>العنوان</th><th>رقم الهاتف</th></tr></thead><tbody>${rows}</tbody></table></div>
+    </div>
+    <div style="display:flex;gap:10px;margin-top:16px;flex-wrap:wrap;">
+      <button class="btn" onclick="window.print()">🖨 طباعة</button>
+      <button class="btn secondary" onclick="exportClassRosterPdf('${classId}')">📄 PDF</button>
+      <button class="btn secondary" onclick="exportClassRosterExcel('${classId}')">📊 Excel</button>
+      <button class="btn secondary" onclick="closeModal()">إغلاق</button>
+    </div>
+  `);
+}
+function exportClassRosterPdf(classId) {
+  const area = document.getElementById('classRosterPrintArea');
+  if (!area) return toast('لا يوجد محتوى');
+  toast('⏳ جاري تحضير PDF...');
+  html2pdf().set({ margin: 8, filename: `قائمة_${className(classId).replace(/\s+/g,'_')}.pdf`, image: { type: 'jpeg', quality: 0.98 }, html2canvas: { scale: 2 }, jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' } }).from(area).save().catch(() => toast('⚠️ خطأ في PDF'));
+}
+function exportClassRosterExcel(classId) {
+  const list = sortStudents(studentsOf(classId), classesViewState.sortBy);
+  const data = list.map(s => ({
+    'الاسم': s.firstName || '', 'اللقب': s.lastName || '',
+    'تاريخ الميلاد': s.birthDate || '', 'مكان الميلاد': s.birthPlace || '',
+    'الكفالة': formatCustody(s), 'العنوان': s.address || '',
+    'رقم الهاتف': getGuardianInfo(s).phone || ''
+  }));
+  const ws = XLSX.utils.json_to_sheet(data);
+  const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'قائمة القسم');
+  XLSX.writeFile(wb, `قائمة_${className(classId).replace(/\s+/g,'_')}_${todayISO()}.xlsx`);
+  toast('✅ تم تصدير Excel');
+}
+// ---------- قائمة الحالات الصحية لكل قسم ----------
+function renderHealthListModal(classId) {
+  const list = sortStudents(studentsOf(classId), classesViewState.sortBy).filter(s => s.healthCondition && s.healthCondition.trim());
+  if (!list.length) return toast('لا توجد حالات صحية مسجَّلة في هذا القسم');
+  const rows = list.map(s => `<tr>
+    <td>${s.firstName || '—'}</td>
+    <td>${s.lastName || '—'}</td>
+    <td>${s.healthCondition}</td>
+    <td>${getGuardianInfo(s).phone}</td>
+  </tr>`).join('');
+  openModal(`
+    <h2>🏥 الحالات الصحية: ${className(classId)}</h2>
+    <div id="healthListPrintArea">${schoolMetaLine()}
+      <div class="table-responsive"><table><thead><tr><th>الاسم</th><th>اللقب</th><th>الحالة الصحية</th><th>هاتف ولي الأمر</th></tr></thead><tbody>${rows}</tbody></table></div>
+    </div>
+    <div style="display:flex;gap:10px;margin-top:16px;flex-wrap:wrap;">
+      <button class="btn" onclick="window.print()">🖨 طباعة</button>
+      <button class="btn secondary" onclick="exportHealthListPdf('${classId}')">📄 PDF</button>
+      <button class="btn secondary" onclick="closeModal()">إغلاق</button>
+    </div>
+  `);
+}
+function exportHealthListPdf(classId) {
+  const area = document.getElementById('healthListPrintArea');
+  if (!area) return toast('لا يوجد محتوى');
+  toast('⏳ جاري تحضير PDF...');
+  html2pdf().set({ margin: 8, filename: `الحالات_الصحية_${className(classId).replace(/\s+/g,'_')}.pdf`, image: { type: 'jpeg', quality: 0.98 }, html2canvas: { scale: 2 }, jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' } }).from(area).save().catch(() => toast('⚠️ خطأ في PDF'));
+}
+// ---------- قائمة الحالات الاجتماعية الخاصة لكل قسم ----------
+function renderSocialListModal(classId) {
+  const list = sortStudents(studentsOf(classId), classesViewState.sortBy).filter(s => s.parentStatus && s.parentStatus !== 'married');
+  if (!list.length) return toast('لا توجد حالات عائلية خاصة مسجَّلة في هذا القسم');
+  const rows = list.map(s => `<tr>
+    <td>${s.firstName || '—'}</td>
+    <td>${s.lastName || '—'}</td>
+    <td>${formatFamilyStatus(s)}</td>
+    <td>${formatCustody(s)}</td>
+    <td>${getGuardianInfo(s).phone}</td>
+  </tr>`).join('');
+  openModal(`
+    <h2>👪 الحالات الاجتماعية الخاصة: ${className(classId)}</h2>
+    <p style="font-size:12px;color:var(--text-medium);margin-bottom:8px;">تشمل هذه القائمة كل حالة غير "متزوجين" (منفصلين، وفاة الأب، وفاة الأم)، مع اسم الكفيل في حال الانفصال أو الوفاة.</p>
+    <div id="socialListPrintArea">${schoolMetaLine()}
+      <div class="table-responsive"><table><thead><tr><th>الاسم</th><th>اللقب</th><th>الحالة العائلية</th><th>الكفالة</th><th>هاتف ولي الأمر</th></tr></thead><tbody>${rows}</tbody></table></div>
+    </div>
+    <div style="display:flex;gap:10px;margin-top:16px;flex-wrap:wrap;">
+      <button class="btn" onclick="window.print()">🖨 طباعة</button>
+      <button class="btn secondary" onclick="exportSocialListPdf('${classId}')">📄 PDF</button>
+      <button class="btn secondary" onclick="closeModal()">إغلاق</button>
+    </div>
+  `);
+}
+function exportSocialListPdf(classId) {
+  const area = document.getElementById('socialListPrintArea');
+  if (!area) return toast('لا يوجد محتوى');
+  toast('⏳ جاري تحضير PDF...');
+  html2pdf().set({ margin: 8, filename: `الحالات_الاجتماعية_${className(classId).replace(/\s+/g,'_')}.pdf`, image: { type: 'jpeg', quality: 0.98 }, html2canvas: { scale: 2 }, jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' } }).from(area).save().catch(() => toast('⚠️ خطأ في PDF'));
 }
 function exportModalToPdf(filename) {
   const box = document.getElementById('modalBox');
