@@ -3747,19 +3747,27 @@ function render() {
   const selStart = active ? active.selectionStart : null;
   const selEnd = active ? active.selectionEnd : null;
   let content = '';
-  switch (activeTab) {
-    case 'dash': content = renderDash(); break;
-    case 'classes': content = renderClasses(); break;
-    case 'teachers': content = renderTeachers(); break;
-    case 'attendance': content = renderAttendance(); break;
-    case 'notices': content = renderNotices(); break;
-    case 'absnotices': content = renderAbsenceNotices(); break;
-    case 'grades': content = renderGrades(); break;
-    case 'timetable': content = renderTimetable(); break;
-    case 'holidays': content = renderHolidays(); break;
-    case 'endyear': content = renderEndYearWizard(); break;
-    case 'data': content = renderData(); break;
-    default: content = '<p>تبويب غير معروف</p>';
+  try {
+    switch (activeTab) {
+      case 'dash': content = renderDash(); break;
+      case 'classes': content = renderClasses(); break;
+      case 'teachers': content = renderTeachers(); break;
+      case 'attendance': content = renderAttendance(); break;
+      case 'notices': content = renderNotices(); break;
+      case 'absnotices': content = renderAbsenceNotices(); break;
+      case 'grades': content = renderGrades(); break;
+      case 'timetable': content = renderTimetable(); break;
+      case 'holidays': content = renderHolidays(); break;
+      case 'endyear': content = renderEndYearWizard(); break;
+      case 'data': content = renderData(); break;
+      default: content = '<p>تبويب غير معروف</p>';
+    }
+  } catch (e) {
+    console.error('خطأ أثناء عرض التبويب', activeTab, e);
+    content = `<div class="card"><h2>⚠️ حدث خطأ غير متوقع أثناء عرض هذا التبويب</h2>
+      <p style="font-size:13px;color:var(--text-medium);">جرّب الانتقال إلى "📊 الرئيسية" ثم العودة لهذا التبويب. إن تكرر الخطأ، صوّر هذه الرسالة وأرسلها:</p>
+      <p style="font-size:12px;background:#fee2e2;color:#991b1b;padding:8px 12px;border-radius:6px;direction:ltr;text-align:left;word-break:break-all;">${(e && e.message) ? String(e.message).replace(/[<>]/g,'') : String(e)}</p>
+    </div>`;
   }
   main.innerHTML = content;
   if (activeId) {
