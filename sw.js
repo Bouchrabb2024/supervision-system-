@@ -11,7 +11,7 @@
 // الهدف: تخزين الصفحة والمكتبات المستخدمة محلياً كي يفتح التطبيق فوراً حتى بلا إنترنت إطلاقاً
 // لا يتدخل إطلاقاً في طلبات Firestore/Firebase حتى لا يؤثر على المزامنة الحية
 
-const CACHE_NAME = 'sijil-cache-v2';
+const CACHE_NAME = 'sijil-cache-v3';
 const CORE_ASSETS = [
   './',
   './index.html'
@@ -67,14 +67,28 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // استراتيجية: تقديم النسخة المخزنة فوراً إن وُجدت (سرعة + عمل بلا إنترنت)،
-  // مع تحديثها في الخلفية من الشبكة كلما توفر اتصال
+  // صفحة HTML الرئيسية: "الشبكة أولاً" — نضمن دائماً أحدث نسخة مرفوعة طالما هناك
+  // اتصال، ولا نلجأ للنسخة المخزَّنة إلا عند انعدام الاتصال فعلاً. هذا يمنع مشكلة
+  // "تحديث لا يظهر رغم رفع نسخة جديدة" التي تسببت فيها استراتيجية الكاش-أولاً سابقاً.
+  const isNavigation = req.mode === 'navigate' || req.url.endsWith('/') || req.url.endsWith('/index.html');
+  if (isNavigation) {
+    event.respondWith(
+      fetch(req)
+        .then((res) => {
+          const resClone = res.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(req, resClone)).catch(() => {});
+          return res;
+        })
+        .catch(() => caches.match(req).then((cached) => cached || caches.match('./index.html')))
+    );
+    return;
+  }
+
+  // بقية الملفات (مكتبات CDN وغيرها): الكاش أولاً للسرعة، مع تحديث خلفي عند توفر الاتصال
   event.respondWith(
     caches.match(req).then((cached) => {
       const networkFetch = fetch(req)
         .then((res) => {
-          // نُخزّن أي استجابة ناجحة (200 لنفس المصدر) أو "opaque" (لمصادر CDN بدون CORS)
-          // فقط نستبعد استجابات الخطأ الواضحة (4xx/5xx لنفس المصدر)
           if (res && (res.status === 200 || res.type === 'opaque')) {
             const resClone = res.clone();
             caches.open(CACHE_NAME).then((cache) => cache.put(req, resClone)).catch(() => {});
