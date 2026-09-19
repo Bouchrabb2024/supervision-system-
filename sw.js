@@ -7,21 +7,38 @@
 // © 2026 — جميع الحقوق محفوظة
 
 // Service Worker لبرنامج الإشراف التربوي
-// يعمل فقط عند استضافة الملف عبر رابط https (مثل Firebase Hosting)
+// يعمل فقط عند استضافة الملف عبر رابط https (مثل Firebase Hosting أو GitHub Pages)
 // الهدف: تخزين الصفحة والمكتبات المستخدمة محلياً كي يفتح التطبيق فوراً حتى بلا إنترنت إطلاقاً
 // لا يتدخل إطلاقاً في طلبات Firestore/Firebase حتى لا يؤثر على المزامنة الحية
 
-const CACHE_NAME = 'sijil-cache-v1';
+const CACHE_NAME = 'sijil-cache-v2';
 const CORE_ASSETS = [
   './',
   './index.html'
 ];
+// مكتبات خارجية (CDN) يحتاجها التطبيق — تُطلب عبر وسم <script> بدون crossorigin،
+// لذا تصل استجابتها "opaque" (بلا تفاصيل)، ويجب تخزينها بوضع no-cors صراحة
+const CDN_ASSETS = [
+  'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js',
+  'https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js',
+  'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js',
+  'https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js',
+  'https://www.gstatic.com/firebasejs/10.13.1/firebase-app-compat.js',
+  'https://www.gstatic.com/firebasejs/10.13.1/firebase-auth-compat.js',
+  'https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore-compat.js'
+];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME)
-      .then((cache) => cache.addAll(CORE_ASSETS))
-      .catch(() => {}) // لا نمنع التثبيت لو فشل تخزين بعض الأصول مبدئياً
+    caches.open(CACHE_NAME).then((cache) =>
+      Promise.all([
+        cache.addAll(CORE_ASSETS).catch(() => {}),
+        // كل مكتبة CDN تُخزَّن على حدة بوضع no-cors؛ فشل واحدة لا يوقف البقية
+        ...CDN_ASSETS.map((url) =>
+          fetch(url, { mode: 'no-cors' }).then((res) => cache.put(url, res)).catch(() => {})
+        )
+      ])
+    )
   );
   self.skipWaiting();
 });
@@ -56,7 +73,9 @@ self.addEventListener('fetch', (event) => {
     caches.match(req).then((cached) => {
       const networkFetch = fetch(req)
         .then((res) => {
-          if (res && res.status === 200 && res.type !== 'opaque') {
+          // نُخزّن أي استجابة ناجحة (200 لنفس المصدر) أو "opaque" (لمصادر CDN بدون CORS)
+          // فقط نستبعد استجابات الخطأ الواضحة (4xx/5xx لنفس المصدر)
+          if (res && (res.status === 200 || res.type === 'opaque')) {
             const resClone = res.clone();
             caches.open(CACHE_NAME).then((cache) => cache.put(req, resClone)).catch(() => {});
           }

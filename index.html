@@ -1,12 +1,3 @@
-<!--
-  تطبيق الإشراف التربوي الرقمي
-  المالك والمبتكر: واضح محمد
-  المهنة: مشرف تربوي — بشار
-  البريد: hamadalh08@gmail.com
-  تاريخ نظام الملكية: 19/09/2026
-  الإصدار: 1.0.0
-  © 2026 — جميع الحقوق محفوظة
--->
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
@@ -790,15 +781,6 @@ input[type="number"] { text-align: right; }
   </span>
 </div>
 
-<!-- ================= بانر تذكير حجم بيانات المزامنة ================= -->
-<div class="export-banner" id="dataSizeBanner">
-  <span class="msg">📦 <span id="dataSizeBannerText">حجم بيانات المزامنة يقترب من الحد الأقصى.</span></span>
-  <span class="actions">
-    <button class="btn success" onclick="activeTab='data'; render(); document.querySelectorAll('nav.tabs button').forEach(b=>b.classList.toggle('active', b.dataset.tab==='data'));">⚙️ فتح الإعدادات</button>
-    <button class="btn secondary" onclick="dismissDataSizeBanner()">تذكيري لاحقاً</button>
-  </span>
-</div>
-
 <!-- ================= المحتوى الرئيسي ================= -->
 <div class="shell">
   <nav class="tabs" id="tabsContainer">
@@ -810,8 +792,6 @@ input[type="number"] { text-align: right; }
     <button data-tab="absnotices">🚨 إشعارات الغياب</button>
     <button data-tab="grades">📊 كشف النقط</button>
     <button data-tab="timetable">📅 استعمال الزمن</button>
-    <button data-tab="holidays">🏖️ رزنامة العطل</button>
-    <button data-tab="endyear">🎓 نهاية السنة</button>
     <button data-tab="data">⚙️ الإعدادات</button>
   </nav>
   <main id="main"></main>
@@ -849,10 +829,7 @@ let state = {
   classNoticeCounters: {},
   absenceTracking: {},
   ttDays: ["الأحد","الاثنين","الثلاثاء","الأربعاء","الخميس"],
-  ttSlots: 7,
-  holidays: [],
-  extraSchoolDays: [],
-  ownerInfo: { fullName: 'واضح محمد', province: 'بشار', email: 'hamadalh08@gmail.com', licenseDate: '2026-09-19', version: '1.0.0' }
+  ttSlots: 7
 };
 
 let activeTab = 'dash';
@@ -862,7 +839,6 @@ let currentTtClassId = '';
 let currentScheduleTeacherId = '';
 let gradesState = { classId: '' };
 let absenceNoticeState = { filterClassId: '' };
-let endYearState = { decisions: {}, newYear: '' };
 let classesViewState = { filterClassId: '', selected: new Set(), searchText: '', sortBy: 'name' };
 function sortStudents(list, sortBy) {
   const arr = [...list];
@@ -1086,7 +1062,6 @@ async function saveState() {
       writeStateToLocalFolder().catch((e) => console.warn('local folder write failed', e));
     }
     scheduleCloudPush();
-    checkDataSizeReminder();
   } catch(e) { console.error('Save error', e); toast('⚠️ فشل حفظ البيانات'); }
 }
 
@@ -1185,85 +1160,6 @@ function normalizeLoadedState() {
   if (!state.absenceTracking) state.absenceTracking = {};
   if (!state.ttDays) state.ttDays = ["الأحد","الاثنين","الثلاثاء","الأربعاء","الخميس"];
   if (!state.ttSlots || state.ttSlots < 7) state.ttSlots = 7;
-  if (!state.holidays) state.holidays = [];
-  if (!state.extraSchoolDays) state.extraSchoolDays = [];
-  if (!state.ownerInfo) state.ownerInfo = { fullName: 'واضح محمد', province: 'بشار', email: 'hamadalh08@gmail.com', licenseDate: '2026-09-19', version: '1.0.0' };
-}
-
-// ============================================================
-//  ميزة الملكية الداخلية — تظهر فقط في "حول التطبيق" والشهادة المُصدَّرة
-//  لا تُستخدم إطلاقاً في أي وثيقة رسمية/بطاقة/تقرير/Excel/PDF مُصدَّر للغير
-// ============================================================
-function computeOwnerFingerprint() {
-  const o = state.ownerInfo || {};
-  const raw = `${o.fullName || ''}|${o.licenseDate || ''}|${o.version || ''}`;
-  let h1 = 0, h2 = 0;
-  for (let i = 0; i < raw.length; i++) {
-    const c = raw.charCodeAt(i);
-    h1 = (h1 * 31 + c) >>> 0;
-    h2 = (h2 * 131 + c) >>> 0;
-  }
-  const hex = (h1.toString(16) + h2.toString(16) + (h1 ^ h2).toString(16)).toUpperCase().padEnd(12, '0').slice(0, 12);
-  return `${hex.slice(0,4)}-${hex.slice(4,8)}-${hex.slice(8,12)}`;
-}
-function renderAboutCard() {
-  const o = state.ownerInfo || {};
-  const fp = computeOwnerFingerprint();
-  return `
-    <div class="card">
-      <h2>ℹ️ حول التطبيق</h2>
-      <p style="font-size:14px;"><b>اسم التطبيق:</b> الإشراف التربوي الرقمي</p>
-      <div class="row">
-        <div class="field"><label>الاسم الكامل للمالك</label><input type="text" id="own_name" value="${escapeHtml(o.fullName||'')}"></div>
-        <div class="field"><label>الولاية</label><input type="text" id="own_prov" value="${escapeHtml(o.province||'')}"></div>
-      </div>
-      <div class="row">
-        <div class="field"><label>البريد الإلكتروني</label><input type="text" id="own_email" value="${escapeHtml(o.email||'')}"></div>
-        <div class="field"><label>تاريخ نظام الملكية</label><input type="text" value="${fmtDMY(o.licenseDate)||o.licenseDate||''}" readonly></div>
-      </div>
-      <div class="row"><button class="btn" onclick="saveOwnerInfo()">💾 حفظ</button></div>
-      <p style="font-size:13px;color:var(--text-medium);margin-top:8px;">الإصدار الحالي: ${escapeHtml(o.version||'')} &nbsp; · &nbsp; © 2026 — جميع الحقوق محفوظة</p>
-      <p style="font-size:13px;margin-top:6px;"><b>🔐 البصمة الرقمية:</b> <span style="font-family:monospace;letter-spacing:1px;">${fp}</span></p>
-      <div class="row">
-        <button class="btn secondary" onclick="navigator.clipboard.writeText('${fp}').then(()=>toast('✅ تم نسخ البصمة'))">📋 نسخ بصمة الملكية</button>
-        <button class="btn secondary" onclick="exportOwnerCertificate()">📜 تصدير شهادة الملكية</button>
-      </div>
-    </div>
-  `;
-}
-async function saveOwnerInfo() {
-  if (!state.ownerInfo) state.ownerInfo = {};
-  state.ownerInfo.fullName = document.getElementById('own_name').value.trim();
-  state.ownerInfo.province = document.getElementById('own_prov').value.trim();
-  state.ownerInfo.email = document.getElementById('own_email').value.trim();
-  await saveState(); render(); toast('✅ تم حفظ معلومات المالك');
-}
-function exportOwnerCertificate() {
-  const o = state.ownerInfo || {};
-  const cert = {
-    'نوع الملف': 'شهادة ملكية فكرية',
-    'اسم التطبيق': 'الإشراف التربوي الرقمي',
-    'الإصدار': o.version || '1.0.0',
-    'الاسم الكامل': o.fullName || '',
-    'المهنة': 'مشرف تربوي',
-    'الولاية': o.province || '',
-    'البريد': o.email || '',
-    'تاريخ نظام الملكية': o.licenseDate || '',
-    'تاريخ آخر تحديث': todayISO(),
-    'البصمة الرقمية': computeOwnerFingerprint(),
-    'قائمة الميزات': [
-      'إدارة الأقسام والتلاميذ', 'الغياب اليومي والشهري', 'إشعارات الغياب الرسمية',
-      'كشف النقط', 'استعمال الزمن', 'المزامنة السحابية بين الأجهزة',
-      'رزنامة العطل الرسمية', 'إدارة الأفواج ومعالج نهاية السنة'
-    ],
-    'ملاحظة قانونية': 'هذه الشهادة توثيق داخلي لملكية وابتكار هذا التطبيق، ولا تُغني عن أي إجراء قانوني رسمي إن لزم الأمر.'
-  };
-  const blob = new Blob([JSON.stringify(cert, null, 2)], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url; a.download = `شهادة_ملكية_الإشراف_التربوي_${todayISO()}.json`; a.click();
-  URL.revokeObjectURL(url);
-  toast('✅ تم تصدير شهادة الملكية');
 }
 
 async function initFirebaseSync() {
@@ -1423,12 +1319,7 @@ async function restoreTrashItem(trashId) {
     return;
   }
   if (item.type === 'class') state.classes.push(item.data);
-  else if (item.type === 'student') {
-    item.data.status = 'قيد الدراسة';
-    delete item.data.departureDate;
-    delete item.data.departureReason;
-    state.students.push(item.data);
-  }
+  else if (item.type === 'student') state.students.push(item.data);
   else if (item.type === 'teacher') state.teachers.push(item.data);
   else if (item.type === 'subject') state.subjects.push(item.data);
   state.trash = state.trash.filter(t => t.id !== trashId);
@@ -1437,12 +1328,7 @@ async function restoreTrashItem(trashId) {
 async function restoreTrashBatch(batchId) {
   const items = state.trash.filter(t => t.batchId === batchId);
   items.filter(i => i.type === 'class').forEach(i => state.classes.push(i.data));
-  items.filter(i => i.type === 'student').forEach(i => {
-    i.data.status = 'قيد الدراسة';
-    delete i.data.departureDate;
-    delete i.data.departureReason;
-    state.students.push(i.data);
-  });
+  items.filter(i => i.type === 'student').forEach(i => state.students.push(i.data));
   state.trash = state.trash.filter(t => t.batchId !== batchId);
   await saveState(); render(); toast('✅ تم استرجاع القسم وتلاميذه');
 }
@@ -1479,17 +1365,6 @@ function openCloseYearModal() {
     </div>
   `);
 }
-function resetYearlyOperationalData() {
-  state.attendance = {};
-  state.monthlyStudyHours = {};
-  state.catchupHours = {};
-  state.timetable = {};
-  state.teacherFreeSlots = {};
-  state.classNoticeCounters = {};
-  state.absenceNotices = [];
-  state.absenceTracking = {};
-  state.students.forEach(s => { s.avgT1 = ''; s.avgT2 = ''; s.avgT3 = ''; });
-}
 async function confirmCloseYear() {
   const newYearInput = document.getElementById('newSchoolYearInput');
   const newYear = newYearInput ? newYearInput.value.trim() : '';
@@ -1506,7 +1381,15 @@ async function confirmCloseYear() {
   setLastExportTime(Date.now());
 
   // 2) إعادة تعيين بيانات السنة
-  resetYearlyOperationalData();
+  state.attendance = {};
+  state.monthlyStudyHours = {};
+  state.catchupHours = {};
+  state.timetable = {};
+  state.teacherFreeSlots = {};
+  state.classNoticeCounters = {};
+  state.absenceNotices = [];
+  state.absenceTracking = {};
+  state.students.forEach(s => { s.avgT1 = ''; s.avgT2 = ''; s.avgT3 = ''; });
 
   // 3) تحديث السنة الدراسية إن أُدخلت
   if (newYear) {
@@ -1673,35 +1556,6 @@ function checkExportReminder() {
   if (days >= EXPORT_REMINDER_DAYS) showExportBanner(days === Infinity ? EXPORT_REMINDER_DAYS : days);
 }
 
-// ---------- تذكير دوري بحجم بيانات المزامنة (حد Firestore: 1MB لكل مستند) ----------
-const DATASIZE_WARN_PCT = 70; // % من الحد الأقصى يُطلق التذكير
-const DATASIZE_SNOOZE_DAYS = 3;
-function dataSizeSnoozeUntil() { return Number(localStorage.getItem('sijil_datasize_snooze') || 0); }
-function setDataSizeSnoozeUntil(ts) { localStorage.setItem('sijil_datasize_snooze', String(ts)); }
-function showDataSizeBanner(pct, bytes) {
-  const banner = document.getElementById('dataSizeBanner');
-  const text = document.getElementById('dataSizeBannerText');
-  if (!banner || !text) return;
-  text.textContent = `حجم بيانات المزامنة السحابية بلغ ${formatBytes(bytes)} (${pct}% من الحد الأقصى 1MB لكل قسم مزامنة) — راجع بطاقة "🔗 المزامنة" في الإعدادات.`;
-  banner.classList.add('show');
-}
-function hideDataSizeBanner() {
-  const banner = document.getElementById('dataSizeBanner');
-  if (banner) banner.classList.remove('show');
-}
-function dismissDataSizeBanner() {
-  setDataSizeSnoozeUntil(Date.now() + DATASIZE_SNOOZE_DAYS * 24 * 60 * 60 * 1000);
-  hideDataSizeBanner();
-}
-function checkDataSizeReminder() {
-  if (!getSyncCode()) return; // لا يهم حجم Firestore إن لم تكن المزامنة مفعّلة أصلاً
-  if (Date.now() < dataSizeSnoozeUntil()) { hideDataSizeBanner(); return; }
-  const bytes = estimateStateSizeBytes();
-  const pct = Math.round((bytes / (1024 * 1024)) * 100);
-  if (pct >= DATASIZE_WARN_PCT) showDataSizeBanner(pct, bytes);
-  else hideDataSizeBanner();
-}
-
 async function pruneOldBackups(backupsDir) {
   if (!fsApiSupported()) return;
   try {
@@ -1783,11 +1637,8 @@ function renderDash() {
 
 function renderClasses() {
   const classOptions = state.classes.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
-  const LEVEL_OPTS = ['', '1م', '2م', '3م', '4م'];
   let classRows = state.classes.map(c => `
-    <tr><td><b>${escapeHtml(c.name)}</b></td><td>${studentsOf(c.id).length}</td>
-    <td><select onchange="setClassLevel('${c.id}', this.value)">${LEVEL_OPTS.map(lv => `<option value="${lv}" ${c.level===lv?'selected':''}>${lv||'—'}</option>`).join('')}</select></td>
-    <td><button class="btn small secondary" onclick="renderBulkCardsModal('${c.id}')">🖨 بطاقات</button> <button class="btn small secondary" onclick="renderClassRosterModal('${c.id}')">📋 قائمة القسم</button> <button class="btn small secondary" onclick="renderHealthListModal('${c.id}')">🏥 الحالات الصحية</button> <button class="btn small secondary" onclick="renderSocialListModal('${c.id}')">👪 الحالات الاجتماعية</button> <button class="btn small danger" onclick="delClass('${c.id}')">حذف</button></td></tr>
+    <tr><td><b>${c.name}</b></td><td>${studentsOf(c.id).length}</td><td><button class="btn small secondary" onclick="renderBulkCardsModal('${c.id}')">🖨 بطاقات</button> <button class="btn small secondary" onclick="renderClassRosterModal('${c.id}')">📋 قائمة القسم</button> <button class="btn small secondary" onclick="renderHealthListModal('${c.id}')">🏥 الحالات الصحية</button> <button class="btn small secondary" onclick="renderSocialListModal('${c.id}')">👪 الحالات الاجتماعية</button> <button class="btn small danger" onclick="delClass('${c.id}')">حذف</button></td></tr>
   `).join('');
 
   let filtered = state.students;
@@ -1817,7 +1668,7 @@ function renderClasses() {
       <td>${formatFamilyStatus(s)} (${formatCustody(s)})</td>
       <td>${scholarshipBadge}</td>
       <td>${s.fatherPhone || s.motherPhone || '—'}</td>
-      <td><button class="btn small secondary" onclick="viewCard('${s.id}')">🪪</button> <button class="btn small secondary" onclick="editStudent('${s.id}')">✏️</button> <button class="btn small secondary" onclick="openTransferModal('${s.id}')">🚪</button> <button class="btn small danger" onclick="delStudent('${s.id}')">×</button></td>
+      <td><button class="btn small secondary" onclick="viewCard('${s.id}')">🪪</button> <button class="btn small secondary" onclick="editStudent('${s.id}')">✏️</button> <button class="btn small danger" onclick="delStudent('${s.id}')">×</button></td>
     </tr>`;
   }).join('');
 
@@ -1830,7 +1681,7 @@ function renderClasses() {
         <div class="field"><label>اسم القسم</label><input type="text" id="newClassName"></div>
         <button class="btn" onclick="addClass()">إضافة</button>
       </div>
-      <div class="table-responsive"><table><thead><tr><th>القسم</th><th>عدد التلاميذ</th><th>المستوى</th><th>إجراءات</th></tr></thead><tbody>${classRows || '<tr><td colspan="4" class="empty">لا توجد أقسام</td></tr>'}</tbody></table></div>
+      <div class="table-responsive"><table><thead><tr><th>القسم</th><th>عدد التلاميذ</th><th>إجراءات</th></tr></thead><tbody>${classRows || '<tr><td colspan="3" class="empty">لا توجد أقسام</td></tr>'}</tbody></table></div>
     </div>
 
     <div class="card">
@@ -1984,167 +1835,41 @@ function getScheduledHoursForDate(classId, dateStr) {
   }
   return count;
 }
-function isExceptionalSchoolDate(dateStr) {
-  return (state.extraSchoolDays || []).some(e => e.date === dateStr);
-}
-function getHolidaysWithinRange(fromDate, toDate) {
-  if (!fromDate || !toDate) return [];
-  return (state.holidays || []).filter(h => h.from <= toDate && h.to >= fromDate);
-}
-function daysBetweenInclusive(from, to) {
-  const d1 = new Date(from + 'T00:00:00'), d2 = new Date(to + 'T00:00:00');
-  return Math.round((d2 - d1) / (24*60*60*1000)) + 1;
-}
-function rangesOverlap(aFrom, aTo, bFrom, bTo) { return aFrom <= bTo && aTo >= bFrom; }
-const HOLIDAY_TYPE_LABELS = { national: '🇩🇿 وطنية', religious: '🕌 دينية', school: '🏫 مدرسية', exceptional: '⚠️ استثنائية' };
-const REFERENCE_HOLIDAYS_CHECKLIST = [
-  { key: 'jan1', label: '01 جانفي (رأس السنة الميلادية)', match: h => h.from.slice(5) === '01-01' },
-  { key: 'jan12', label: '12 جانفي (رأس السنة الأمازيغية)', match: h => h.from.slice(5) === '01-12' },
-  { key: 'may1', label: '01 ماي (عيد العمال)', match: h => h.from.slice(5) === '05-01' },
-  { key: 'jul5', label: '05 جويلية (عيد الاستقلال)', match: h => h.from.slice(5) === '07-05' },
-  { key: 'nov1', label: '01 نوفمبر (عيد الثورة)', match: h => h.from.slice(5) === '11-01' },
-  { key: 'autumn', label: 'عطلة الخريف', match: h => (h.name||'').includes('خريف') },
-  { key: 'winter', label: 'عطلة الشتاء', match: h => (h.name||'').includes('شتاء') },
-  { key: 'spring', label: 'عطلة الربيع', match: h => (h.name||'').includes('ربيع') },
-  { key: 'fitr', label: 'عيد الفطر (تاريخها هجري متغيّر — تحقق يدوياً)', match: h => (h.name||'').includes('الفطر') },
-  { key: 'adha', label: 'عيد الأضحى (تاريخها هجري متغيّر — تحقق يدوياً)', match: h => (h.name||'').includes('الأضحى') },
-  { key: 'mawlid', label: 'المولد النبوي (تاريخها هجري متغيّر — تحقق يدوياً)', match: h => (h.name||'').includes('المولد') },
-  { key: 'ashura', label: 'عاشوراء (تاريخها هجري متغيّر — تحقق يدوياً)', match: h => (h.name||'').includes('عاشوراء') }
-];
-async function addHoliday() {
-  const type = document.getElementById('h_type').value;
-  const name = document.getElementById('h_name').value.trim();
-  const from = document.getElementById('h_from').value;
-  let to = document.getElementById('h_to').value || from;
-  if (!name) return toast('⚠️ أدخل اسم العطلة');
-  if (!from || !to) return toast('⚠️ أدخل تاريخ البداية (والنهاية إن اختلفت)');
-  if (to < from) return toast('⚠️ تاريخ النهاية قبل تاريخ البداية — تحقق من التواريخ');
-  const overlapHoliday = (state.holidays||[]).find(h => rangesOverlap(from, to, h.from, h.to));
-  if (overlapHoliday && !confirm(`⚠️ هذه الفترة تتداخل مع عطلة موجودة مسبقاً "${overlapHoliday.name}" (${fmtDMY(overlapHoliday.from)} - ${fmtDMY(overlapHoliday.to)}). إضافتها رغم ذلك؟`)) return;
-  const overlapExtra = (state.extraSchoolDays||[]).find(e => e.date >= from && e.date <= to);
-  if (overlapExtra && !confirm(`⚠️ هذه الفترة تتداخل مع يوم دراسي استثنائي مُسجَّل بتاريخ ${fmtDMY(overlapExtra.date)}. إضافتها رغم ذلك؟`)) return;
-  state.holidays.push({ id: uid('hol'), type, name, from, to });
-  await saveState(); render(); toast('✅ تمت إضافة العطلة');
-}
-async function deleteHoliday(id) {
-  if (!confirm('حذف هذه العطلة من الرزنامة؟')) return;
-  state.holidays = state.holidays.filter(h => h.id !== id);
-  await saveState(); render();
-}
-async function addExtraSchoolDay() {
-  const date = document.getElementById('x_date').value;
-  const reason = document.getElementById('x_reason').value.trim();
-  if (!date) return toast('⚠️ أدخل التاريخ');
-  const overlapHoliday = (state.holidays||[]).find(h => date >= h.from && date <= h.to);
-  if (overlapHoliday && !confirm(`⚠️ هذا التاريخ يقع ضمن عطلة "${overlapHoliday.name}" المُدخلة مسبقاً. تسجيله كيوم دراسي استثنائي رغم ذلك؟`)) return;
-  if ((state.extraSchoolDays||[]).some(e => e.date === date)) return toast('⚠️ هذا التاريخ مُسجَّل مسبقاً كيوم دراسي استثنائي');
-  state.extraSchoolDays.push({ id: uid('xsd'), date, reason });
-  await saveState(); render(); toast('✅ تمت الإضافة');
-}
-async function deleteExtraSchoolDay(id) {
-  if (!confirm('حذف هذا اليوم الدراسي الاستثنائي؟')) return;
-  state.extraSchoolDays = state.extraSchoolDays.filter(e => e.id !== id);
-  await saveState(); render();
-}
-function renderHolidays() {
-  const holidays = [...(state.holidays||[])].sort((a,b) => a.from.localeCompare(b.from));
-  const totalDays = holidays.reduce((sum,h) => sum + daysBetweenInclusive(h.from, h.to), 0);
-  let bannerHtml;
-  if (holidays.length === 0) {
-    bannerHtml = `<p style="background:#fee2e2;color:#991b1b;padding:10px 14px;border-radius:8px;font-size:13.5px;">🚨 لم تُدخل أي عطلة بعد! ستُحسب جميع أيام السنة كأيام دراسة عادية عند حساب الغياب المتتالي.</p>`;
-  } else if (totalDays < 30) {
-    bannerHtml = `<p style="background:#fef3c7;color:#92400e;padding:10px 14px;border-radius:8px;font-size:13.5px;">⚠️ رزنامتك تحتوي على ${totalDays} يوم عطلة فقط حتى الآن. قد ينقصك بعض العطل الرسمية — راجع القائمة المرجعية أدناه.</p>`;
-  } else {
-    bannerHtml = `<p style="background:#dcfce7;color:#166534;padding:10px 14px;border-radius:8px;font-size:13.5px;">✅ رزنامتك تحتوي على ${holidays.length} عطلة موزعة على ${totalDays} يوماً.</p>`;
-  }
-  const checklistHtml = REFERENCE_HOLIDAYS_CHECKLIST.map(item => {
-    const found = holidays.some(item.match);
-    return `<div style="font-size:13px;padding:3px 0;">${found ? '✅' : '❌'} ${item.label}</div>`;
-  }).join('');
-  const rows = holidays.map(h => `<tr>
-    <td>${HOLIDAY_TYPE_LABELS[h.type] || h.type}</td>
-    <td>${escapeHtml(h.name)}</td>
-    <td>${fmtDMY(h.from)}</td>
-    <td>${fmtDMY(h.to)}</td>
-    <td>${daysBetweenInclusive(h.from, h.to)} يوم</td>
-    <td><button class="btn small danger" onclick="deleteHoliday('${h.id}')">🗑 حذف</button></td>
-  </tr>`).join('');
-  const extraDays = [...(state.extraSchoolDays||[])].sort((a,b) => a.date.localeCompare(b.date));
-  const extraRows = extraDays.map(e => `<tr>
-    <td>${fmtDMY(e.date)}</td>
-    <td>${escapeHtml(e.reason || '—')}</td>
-    <td><button class="btn small danger" onclick="deleteExtraSchoolDay('${e.id}')">🗑 حذف</button></td>
-  </tr>`).join('');
-  return `
-    <div class="card">
-      <h2>🏖️ رزنامة العطل الرسمية</h2>
-      ${bannerHtml}
-      <p style="font-size:13px;color:var(--text-medium);margin:10px 0;line-height:1.8;">
-        العطل المُدخلة هنا تُحتسب تلقائياً ضمن سلسلة الغياب المتتالي للتلميذ (إذا كان غائباً قبلها ولم يُسجَّل حضوره بعدها مباشرة)، دون أي تغيير في عتبات الإشعارات (4، 11، 18، 32). الإدخال يدوي بالكامل وأنت المسؤول عن دقته.
-      </p>
-      <div class="row">
-        <div class="field"><label>النوع</label><select id="h_type"><option value="national">🇩🇿 وطنية</option><option value="religious">🕌 دينية</option><option value="school">🏫 مدرسية</option><option value="exceptional">⚠️ استثنائية</option></select></div>
-        <div class="field"><label>اسم العطلة</label><input type="text" id="h_name" placeholder="مثال: عطلة الشتاء"></div>
-      </div>
-      <div class="row">
-        <div class="field"><label>من تاريخ</label><input type="date" id="h_from"></div>
-        <div class="field"><label>إلى تاريخ (اتركه فارغاً ليوم واحد)</label><input type="date" id="h_to"></div>
-        <button class="btn" onclick="addHoliday()">➕ إضافة عطلة</button>
-      </div>
-      <div class="table-responsive"><table><thead><tr><th>النوع</th><th>الاسم</th><th>من</th><th>إلى</th><th>عدد الأيام</th><th>حذف</th></tr></thead><tbody>${rows || '<tr><td colspan="6" class="empty">لا توجد عطل مُدخلة بعد</td></tr>'}</tbody></table></div>
-    </div>
-    <div class="card">
-      <h2>📋 قائمة تحقق مرجعية (للفحص فقط — لا تُطبَّق تلقائياً)</h2>
-      <p style="font-size:12px;color:var(--text-medium);margin-bottom:8px;">هذه قائمة إرشادية بالعطل النموذجية للسنة الدراسية الجزائرية لمساعدتك على عدم نسيان أي منها — عليك إدخال كل عطلة بنفسك أعلاه بتاريخها الفعلي.</p>
-      ${checklistHtml}
-    </div>
-    <div class="card">
-      <h2>📆 الأيام الدراسية الاستثنائية</h2>
-      <p style="font-size:13px;color:var(--text-medium);margin-bottom:8px;">أيام دراسة تعويضية تقع أصلاً ضمن عطلة أسبوعية أو رسمية (مثل سبت دراسي)، للتوثيق فقط — تسجيل الحضور/الغياب فيها يعمل بشكل طبيعي عبر تبويب "الغياب اليومي".</p>
-      <div class="row">
-        <div class="field"><label>التاريخ</label><input type="date" id="x_date"></div>
-        <div class="field"><label>السبب</label><input type="text" id="x_reason" placeholder="مثال: تعويض يوم إضراب"></div>
-        <button class="btn" onclick="addExtraSchoolDay()">➕ إضافة</button>
-      </div>
-      <div class="table-responsive"><table><thead><tr><th>التاريخ</th><th>السبب</th><th>حذف</th></tr></thead><tbody>${extraRows || '<tr><td colspan="3" class="empty">لا توجد أيام استثنائية مُسجَّلة</td></tr>'}</tbody></table></div>
-    </div>
-  `;
-}
 function getAbsenceStreakInfo(student) {
-  // منطق موحَّد: أي يوم بلا تسجيل صريح (سواء عطلة أسبوعية، عطلة رسمية مُدخلة يدوياً، أو يوم دراسي نُسي
-  // تسجيله) يبقى "معلّقاً" — لا يُحتسب فوراً ولا يقطع التسلسل، بل يُحتسب رجعياً فقط إذا تأكَّد بغياب
-  // مُسجَّل أقدم منه. الحضور الصريح هو القاطع الوحيد للتسلسل. (يُطبَّق كذلك على الأيام الدراسية
-  // الاستثنائية المُدخلة يدوياً — تُعامَل كأي يوم آخر بحسب وجود تسجيل حضور/غياب فيها من عدمه)
   let streak = 0;
   let startDate = null;
-  let pending = 0;
+  let pendingWeekend = 0; // أيام عطلة (جمعة/سبت) بانتظار تأكيدها بغياب أسبق
   const cursor = new Date(); cursor.setHours(0,0,0,0);
   let daysChecked = 0;
   while (daysChecked < 120) {
-    const y = cursor.getFullYear(), m = String(cursor.getMonth()+1).padStart(2,'0'), d = String(cursor.getDate()).padStart(2,'0');
-    const dateStr = `${y}-${m}-${d}`;
-    const dayRecord = state.attendance[dateStr];
-    const hasRecord = dayRecord && Object.prototype.hasOwnProperty.call(dayRecord, student.id);
-    if (hasRecord) {
-      const absentHours = Number(dayRecord[student.id] || 0);
-      const scheduled = getScheduledHoursForDate(student.classId, dateStr);
-      const isFullAbsent = scheduled > 0 ? (absentHours >= scheduled) : (absentHours > 0);
-      if (isFullAbsent) {
-        streak += 1 + pending;
-        pending = 0;
-        startDate = dateStr;
-      } else {
-        break; // حضور صريح — القاطع الوحيد للتسلسل
+    const dayName = ARABIC_DAY_NAMES[cursor.getDay()];
+    if (state.ttDays.includes(dayName)) {
+      const y = cursor.getFullYear(), m = String(cursor.getMonth()+1).padStart(2,'0'), d = String(cursor.getDate()).padStart(2,'0');
+      const dateStr = `${y}-${m}-${d}`;
+      const dayRecord = state.attendance[dateStr];
+      if (dayRecord && Object.prototype.hasOwnProperty.call(dayRecord, student.id)) {
+        const absentHours = Number(dayRecord[student.id] || 0);
+        const scheduled = getScheduledHoursForDate(student.classId, dateStr);
+        // إذا كان استعمال الزمن غير مُعبَّأ لهذا اليوم، نعتبر أي غياب مُسجَّل (>0) غياباً كاملاً لليوم
+        const isFullAbsent = scheduled > 0 ? (absentHours >= scheduled) : (absentHours > 0);
+        if (isFullAbsent) {
+          // تأكيد أي أيام عطلة معلّقة توسّطت غيابين، واحتسابها ضمن السلسلة
+          streak += 1 + pendingWeekend;
+          pendingWeekend = 0;
+          startDate = dateStr;
+        } else {
+          break; // حضور مؤكد لهذا اليوم — نهاية السلسلة، ولا تُحتسب أي عطلة معلّقة لم تُؤكَّد
+        }
       }
+      // لا يوجد تسجيل لهذا اليوم بعد — يُتجاوز دون كسر التسلسل
     } else {
-      pending++; // معلّق بانتظار تأكيده بغياب مُسجَّل أسبق
+      // يوم عطلة (الجمعة/السبت) — يُحتسب مبدئياً، ويُؤكَّد فقط إذا توسّط غياباً قبله وغياباً بعده
+      pendingWeekend++;
     }
     cursor.setDate(cursor.getDate() - 1);
     daysChecked++;
   }
-  const todayStr = todayISO();
-  const holidaysIncluded = startDate ? getHolidaysWithinRange(startDate, todayStr) : [];
-  return { streak, startDate, holidaysIncluded };
+  return { streak, startDate };
 }
 function getConsecutiveFullAbsenceDays(student) {
   return getAbsenceStreakInfo(student).streak;
@@ -2185,14 +1910,10 @@ function renderAbsenceNotices() {
     const printBtn = currentNotice
       ? `<button class="btn small secondary" onclick="printAbsenceNotice('${currentNotice.id}')">🖨️ طباعة</button>`
       : `<span style="color:var(--text-medium);font-size:12px;">قيد الإصدار…</span>`;
-    const streakInfo = getAbsenceStreakInfo(s);
-    const holidaysNote = streakInfo.holidaysIncluded.length
-      ? `<div style="font-size:11px;color:var(--text-medium);margin-top:2px;">🏖️ ${streakInfo.holidaysIncluded.map(h => escapeHtml(h.name)).join('، ')}</div>`
-      : '';
     return `<tr>
       <td>${className(s.classId)}</td>
       <td>${escapeHtml(displayName(s))}</td>
-      <td>${status.streak} يوم${holidaysNote}</td>
+      <td>${status.streak} يوم</td>
       <td><span class="badge ${stageInfo.cls}">${stageInfo.label}</span></td>
       <td>${currentNotice ? String(currentNotice.seq).padStart(2,'0') : '—'}</td>
       <td>${printBtn}</td>
@@ -2220,7 +1941,7 @@ function renderAbsenceNotices() {
       <p style="font-size:13px;color:var(--text-medium);margin-bottom:8px;line-height:1.8;">
         <b>يصدر الإشعار تلقائياً</b> بمجرد بلوغ التلميذ العتبة (لا حاجة لأي إجراء يدوي)، وتبقى فقط الطباعة يدوية:<br>
         <b>4 أيام</b> ← الإشعار الأول &nbsp;|&nbsp; <b>11 يوماً</b> ← الإشعار الثاني &nbsp;|&nbsp; <b>18 يوماً</b> ← الإعذار &nbsp;|&nbsp; <b>32 يوماً</b> ← الشطب. (أيام الدراسة الكاملة المتتالية فقط)<br>
-        💡 تُحتسب عطل رزنامتك المُدخلة يدوياً (📅 تبويب العطل) ضمن التسلسل تلقائياً إن كان الغياب مؤكداً قبلها وبعدها؛ أي حضور صريح يقطع التسلسل فوراً.
+        💡 يعتمد الحساب على تسجيل الغياب اليومي بانتظام؛ الأيام غير المُسجَّلة تُتجاوز دون كسر التسلسل.
       </p>
       <div class="row">
         <div class="field"><label>تصفية حسب القسم</label><select onchange="absenceNoticeState.filterClassId=this.value; render();">${classOpts}</select></div>
@@ -2908,7 +2629,6 @@ function renderData() {
         <li>🔹 جميع البيانات محفوظة في IndexedDB بشكل آمن.</li>
       </ul>
     </div>
-    ${renderAboutCard()}
   `;
 }
 
@@ -2919,14 +2639,8 @@ async function addClass() {
   const name = document.getElementById('newClassName').value.trim();
   if (!name) return toast('اكتب اسم القسم');
   if (state.classes.some(c => c.name === name)) return toast('القسم موجود');
-  state.classes.push({ id: uid('c'), name, level: '' });
+  state.classes.push({ id: uid('c'), name });
   await saveState(); render(); toast('✅ تمت الإضافة');
-}
-async function setClassLevel(id, level) {
-  const cls = state.classes.find(c => c.id === id);
-  if (!cls) return;
-  cls.level = level;
-  await saveState(); render();
 }
 async function delClass(id) {
   const cls = state.classes.find(c => c.id === id);
@@ -2975,7 +2689,7 @@ async function addStudent() {
     avgT3: document.getElementById('s_avg3').value.trim(),
     address: document.getElementById('s_addr').value.trim()
   };
-  state.students.push({ id: uid('s'), firstName, lastName, classId, status: 'قيد الدراسة', enrollmentDate: todayISO(), ...extra });
+  state.students.push({ id: uid('s'), firstName, lastName, classId, ...extra });
   await saveState(); render(); toast('✅ تمت إضافة التلميذ');
 }
 async function delStudent(id) {
@@ -2986,185 +2700,6 @@ async function delStudent(id) {
   state.students = state.students.filter(st => st.id !== id);
   await saveState(); render();
   toast('🗑 تم النقل إلى سلة المحذوفات');
-}
-function openTransferModal(id) {
-  const s = state.students.find(st => st.id === id);
-  if (!s) return;
-  openModal(`
-    <h2>🚪 تسجيل تحويل: ${escapeHtml(displayName(s))}</h2>
-    <p style="font-size:13px;color:var(--text-medium);margin-bottom:10px;">سيُنقل التلميذ إلى سلة المحذوفات بعلامة "مُحوَّل" — يمكن استرجاعه منها خلال ${TRASH_KEEP_DAYS} يوماً.</p>
-    <div class="row"><div class="field"><label>تاريخ التحويل</label><input type="date" id="tr_date" value="${todayISO()}"></div></div>
-    <div class="row"><div class="field"><label>المؤسسة المستقبلة (اختياري)</label><input type="text" id="tr_dest"></div></div>
-    <div class="row"><div class="field"><label>السبب (اختياري)</label><input type="text" id="tr_reason"></div></div>
-    <div style="display:flex;gap:10px;margin-top:16px;">
-      <button class="btn danger" onclick="confirmTransferOut('${id}')">✅ تأكيد التحويل</button>
-      <button class="btn secondary" onclick="closeModal()">إلغاء</button>
-    </div>
-  `);
-}
-async function confirmTransferOut(id) {
-  const s = state.students.find(st => st.id === id);
-  if (!s) return;
-  const date = document.getElementById('tr_date').value || todayISO();
-  const dest = document.getElementById('tr_dest').value.trim();
-  const reason = document.getElementById('tr_reason').value.trim();
-  s.status = 'مُحوَّل';
-  s.departureDate = date;
-  s.departureReason = ['تحويل', dest, reason].filter(Boolean).join(' — ');
-  addToTrash('student', s);
-  state.students = state.students.filter(st => st.id !== id);
-  await saveState(); closeModal(); render();
-  toast('✅ تم تسجيل التحويل ونقل التلميذ إلى سلة المحذوفات');
-}
-
-// ============================================================
-//  معالج نهاية السنة — إدارة الأفواج عبر المستويات
-// ============================================================
-const LEVEL_PROMOTION = { '1م': '2م', '2م': '3م', '3م': '4م', '4م': '1م' };
-const END_YEAR_DECISION_LABELS = { success: '✅ ناجح', fail: '❌ راسب', transfer: '🚪 مُحوَّل', withdraw: '🔄 منسحب' };
-function promoteClassName(oldName, oldLevel, newLevel) {
-  if (oldLevel && oldName.startsWith(oldLevel)) return newLevel + oldName.slice(oldLevel.length);
-  return `${oldName} (${newLevel})`;
-}
-function setEndYearDecision(studentId, value) {
-  endYearState.decisions[studentId] = value;
-  render();
-}
-function setAllSuccess() {
-  state.students.forEach(s => { endYearState.decisions[s.id] = 'success'; });
-  render();
-  toast('✅ تم تعيين "ناجح" للجميع');
-}
-function renderEndYearWizard() {
-  const students = [...state.students].sort((a,b) => className(a.classId).localeCompare(className(b.classId)));
-  const counts = { success: 0, fail: 0, transfer: 0, withdraw: 0 };
-  students.forEach(s => { const d = endYearState.decisions[s.id] || 'success'; counts[d]++; });
-  const classesWithoutLevel = state.classes.filter(c => !c.level);
-  const warnHtml = classesWithoutLevel.length
-    ? `<p style="background:#fef3c7;color:#92400e;padding:10px 14px;border-radius:8px;font-size:13px;margin-bottom:10px;">⚠️ الأقسام التالية بلا مستوى محدد فلن تُرقَّى تلقائياً: ${classesWithoutLevel.map(c => escapeHtml(c.name)).join('، ')}. حدد مستوى كل قسم من تبويب "🏫 الأقسام والتلاميذ".</p>`
-    : '';
-  const rows = students.map(s => {
-    const decision = endYearState.decisions[s.id] || 'success';
-    const cls = state.classes.find(c => c.id === s.classId);
-    const lvl = cls ? (cls.level || '—') : '—';
-    const nextLevelNote = decision === 'success'
-      ? (cls && cls.level ? (cls.level === '4م' ? '🎓 يتخرج' : `← ${LEVEL_PROMOTION[cls.level]}`) : '')
-      : '';
-    return `<tr>
-      <td>${className(s.classId)}</td>
-      <td>${escapeHtml(displayName(s))}</td>
-      <td>${lvl} ${nextLevelNote}</td>
-      <td>
-        <select onchange="setEndYearDecision('${s.id}', this.value)">
-          ${Object.entries(END_YEAR_DECISION_LABELS).map(([val,label]) => `<option value="${val}" ${decision===val?'selected':''}>${label}</option>`).join('')}
-        </select>
-      </td>
-    </tr>`;
-  }).join('');
-  return `
-    <div class="card">
-      <h2>🎓 معالج نهاية السنة الدراسية</h2>
-      <p style="font-size:13px;color:var(--text-medium);margin-bottom:10px;line-height:1.8;">
-        حدد قرار نهاية السنة لكل تلميذ. <b>الناجح</b> يبقى معك ويُرقَّى قسمه للمستوى التالي تلقائياً (أو يتخرج إن كان في 4م). <b>الراسب/المُحوَّل/المنسحب</b> يُنقل إلى سلة المحذوفات (يمكن استرجاعه خلال ${TRASH_KEEP_DAYS} يوماً).
-      </p>
-      ${warnHtml}
-      <div class="row">
-        <button class="btn secondary" onclick="setAllSuccess()">🎯 الكل ناجح</button>
-      </div>
-      <p style="font-size:13.5px;margin:10px 0;background:var(--bg-alt,#f1f5f9);padding:10px 14px;border-radius:8px;">
-        📊 الملخص الحي: ✅ ناجح ${counts.success} &nbsp;|&nbsp; ❌ راسب ${counts.fail} &nbsp;|&nbsp; 🚪 مُحوَّل ${counts.transfer} &nbsp;|&nbsp; 🔄 منسحب ${counts.withdraw}
-      </p>
-      <div class="table-responsive"><table><thead><tr><th>القسم</th><th>التلميذ</th><th>المستوى الحالي</th><th>القرار</th></tr></thead><tbody>${rows || '<tr><td colspan="4" class="empty">لا يوجد تلاميذ</td></tr>'}</tbody></table></div>
-    </div>
-    <div class="card">
-      <h2>⚙️ تنفيذ الإغلاق</h2>
-      <div class="row"><div class="field"><label>السنة الدراسية الجديدة (اختياري)</label><input type="text" id="endYearNewYear" value="${escapeHtml(endYearState.newYear)}" oninput="endYearState.newYear=this.value;" placeholder="مثال: 2026/2027"></div></div>
-      <p style="font-size:13px;color:var(--text-medium);margin:10px 0;line-height:1.8;">
-        <b style="color:#e53e3e;">⚠️ لا يمكن التراجع عن "تنفيذ الإغلاق" إلا باستيراد الأرشيف الذي يُصدَّر تلقائياً في الخطوة الأولى.</b><br>
-        "أرشفة فقط" تُصدِّر نسخة احتياطية كاملة الآن دون تنفيذ أي تغيير — مفيدة للفحص المسبق.
-      </p>
-      <div class="row">
-        <button class="btn secondary" onclick="endYearArchiveOnly()">📥 أرشفة فقط</button>
-        <button class="btn danger" onclick="executeEndYearClosure()">⚠️ تنفيذ الإغلاق</button>
-      </div>
-    </div>
-  `;
-}
-function endYearArchiveOnly() {
-  const payload = buildExportPayload();
-  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  const yearLabel = (document.getElementById('schoolYear').value || 'غير_محدد').trim().replace(/[\/\\]/g, '-') || 'غير_محدد';
-  a.href = url; a.download = `أرشيف_${yearLabel}_معالج_النهاية_${todayISO()}.json`; a.click();
-  URL.revokeObjectURL(url);
-  setLastExportTime(Date.now());
-  toast('✅ تم تصدير الأرشيف (لم يتغيّر أي شيء بعد)');
-}
-async function executeEndYearClosure() {
-  if (!confirm('تأكيد نهائي: سيتم أرشفة البيانات، ثم ترقية الناجحين، ونقل الراسبين/المُحوَّلين/المنسحبين إلى سلة المحذوفات، وتحديث الأقسام والسنة الدراسية. متابعة؟')) return;
-
-  // 1) أرشفة كاملة قبل أي تغيير
-  const payload = buildExportPayload();
-  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  const yearLabel = (document.getElementById('schoolYear').value || 'غير_محدد').trim().replace(/[\/\\]/g, '-') || 'غير_محدد';
-  a.href = url; a.download = `أرشيف_${yearLabel}_معالج_النهاية_${todayISO()}.json`; a.click();
-  URL.revokeObjectURL(url);
-  setLastExportTime(Date.now());
-
-  // 2) معالجة قرارات التلاميذ
-  const batchId = 'end-year-' + todayISO();
-  const today = todayISO();
-  const idsToRemove = [];
-  state.students.forEach(s => {
-    const decision = endYearState.decisions[s.id] || 'success';
-    const cls = state.classes.find(c => c.id === s.classId);
-    if (decision === 'success') {
-      if (cls && cls.level === '4م') {
-        s.status = 'متخرج'; s.departureDate = today; s.departureReason = 'تخرج';
-        addToTrash('student', s, batchId);
-        idsToRemove.push(s.id);
-      }
-      // غير ذلك: يبقى كما هو، سيُرقَّى قسمه أدناه
-    } else {
-      const statusMap = { fail: 'راسب', transfer: 'مُحوَّل', withdraw: 'منسحب' };
-      s.status = statusMap[decision] || 'منسحب';
-      s.departureDate = today;
-      s.departureReason = s.status;
-      addToTrash('student', s, batchId);
-      idsToRemove.push(s.id);
-    }
-  });
-  state.students = state.students.filter(s => !idsToRemove.includes(s.id));
-
-  // 3) ترقية مستوى وأسماء الأقسام
-  state.classes.forEach(c => {
-    if (!c.level) return;
-    const nextLevel = LEVEL_PROMOTION[c.level];
-    if (!nextLevel) return;
-    c.name = promoteClassName(c.name, c.level, nextLevel);
-    c.level = nextLevel;
-  });
-
-  // 4) إعادة تعيين بيانات السنة التشغيلية (غياب/ساعات/جدول/إشعارات)
-  resetYearlyOperationalData();
-
-  // 5) تحديث السنة الدراسية إن أُدخلت
-  const newYear = (endYearState.newYear || '').trim();
-  if (newYear) {
-    document.getElementById('schoolYear').value = newYear;
-    const meta = { schoolName: document.getElementById('schoolName').value, schoolYear: newYear };
-    localStorage.setItem('sijil_meta', JSON.stringify(meta));
-  }
-
-  endYearState = { decisions: {}, newYear: '' };
-  await saveState();
-  activeTab = 'dash';
-  render();
-  document.querySelectorAll('nav.tabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === 'dash'));
-  toast('✅ تم تنفيذ إغلاق نهاية السنة بنجاح');
 }
 async function addSubject() {
   const name = document.getElementById('subName').value.trim();
@@ -3756,8 +3291,6 @@ function render() {
     case 'absnotices': content = renderAbsenceNotices(); break;
     case 'grades': content = renderGrades(); break;
     case 'timetable': content = renderTimetable(); break;
-    case 'holidays': content = renderHolidays(); break;
-    case 'endyear': content = renderEndYearWizard(); break;
     case 'data': content = renderData(); break;
     default: content = '<p>تبويب غير معروف</p>';
   }
@@ -3793,9 +3326,7 @@ window.onload = async function() {
   render();
   scheduleAutoBackup();
   checkExportReminder();
-  checkDataSizeReminder();
   setInterval(checkExportReminder, BACKUP_CHECK_MS);
-  setInterval(checkDataSizeReminder, BACKUP_CHECK_MS);
 
   document.getElementById('schoolName').oninput = function() {
     const meta = { schoolName: this.value, schoolYear: document.getElementById('schoolYear').value };
