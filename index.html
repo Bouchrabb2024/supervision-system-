@@ -591,6 +591,32 @@ tbody .empty {
 .id-card-body div { margin-bottom: 4px; font-size: 13px; }
 .id-card-body b { color: var(--primary-dark); }
 
+/* ---------- شبكة بطاقات QR فقط (قائمة قسم) ---------- */
+.qr-only-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  margin-top: 10px;
+}
+.qr-only-card {
+  border: 1.5px solid var(--secondary);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  padding: 10px;
+  text-align: center;
+}
+.qr-only-card img {
+  width: 90px;
+  height: 90px;
+  margin: 0 auto 6px;
+  display: block;
+}
+.qr-only-card .qname { font-size: 12.5px; font-weight: 700; color: var(--primary-dark); }
+.qr-only-card .qreg { font-size: 11px; color: var(--text-medium); }
+@media print {
+  .qr-only-grid { grid-template-columns: repeat(3, 1fr); }
+}
+
 .slot-btn {
   display: block;
   width: 100%;
@@ -843,8 +869,8 @@ let state = {
   timetable: {},
   trash: [],
   monthlyStudyHours: {},
-  catchupHours: {},
   teacherFreeSlots: {},
+  studentLateness: {},
   absenceNotices: [],
   classNoticeCounters: {},
   absenceTracking: {},
@@ -859,7 +885,7 @@ let activeTab = 'dash';
 let attState = { classId: '', date: '' };
 let monthState = { classId: '', month: '' };
 let currentTtClassId = '';
-let currentScheduleTeacherId = '';
+let currentFreeSlotTeacherId = '';
 let gradesState = { classId: '' };
 let absenceNoticeState = { filterClassId: '' };
 let endYearState = { decisions: {}, newYear: '' };
@@ -1108,8 +1134,9 @@ async function loadState() {
       if (!state.timetable) state.timetable = {};
       if (!state.trash) state.trash = [];
       if (!state.monthlyStudyHours) state.monthlyStudyHours = {};
-      if (!state.catchupHours) state.catchupHours = {};
       if (!state.teacherFreeSlots) state.teacherFreeSlots = {};
+      normalizeTeacherFreeSlots();
+      if (!state.studentLateness) state.studentLateness = {};
       if (!state.absenceNotices) state.absenceNotices = [];
       if (!state.classNoticeCounters) state.classNoticeCounters = {};
       if (!state.absenceTracking) state.absenceTracking = {};
@@ -1169,6 +1196,19 @@ function formatBytes(bytes) {
   return (bytes / 1024 / 1024).toFixed(2) + ' MB';
 }
 
+function normalizeTeacherFreeSlots() {
+  if (!state.teacherFreeSlots || typeof state.teacherFreeSlots !== 'object') { state.teacherFreeSlots = {}; return; }
+  Object.keys(state.teacherFreeSlots).forEach(tid => {
+    const rec = state.teacherFreeSlots[tid];
+    if (!rec || typeof rec !== 'object') { state.teacherFreeSlots[tid] = {}; return; }
+    Object.keys(rec).forEach(day => {
+      // توافق خلفي: البنية القديمة كانت نصاً لكل يوم؛ البنية الجديدة كائن {رقم الحصة: نص}
+      if (typeof rec[day] !== 'object' || rec[day] === null || Array.isArray(rec[day])) {
+        rec[day] = {};
+      }
+    });
+  });
+}
 function normalizeLoadedState() {
   if (!state.classes) state.classes = [];
   if (!state.students) state.students = [];
@@ -1178,8 +1218,9 @@ function normalizeLoadedState() {
   if (!state.timetable) state.timetable = {};
   if (!state.trash) state.trash = [];
   if (!state.monthlyStudyHours) state.monthlyStudyHours = {};
-  if (!state.catchupHours) state.catchupHours = {};
   if (!state.teacherFreeSlots) state.teacherFreeSlots = {};
+  normalizeTeacherFreeSlots();
+  if (!state.studentLateness) state.studentLateness = {};
   if (!state.absenceNotices) state.absenceNotices = [];
   if (!state.classNoticeCounters) state.classNoticeCounters = {};
   if (!state.absenceTracking) state.absenceTracking = {};
@@ -1384,6 +1425,13 @@ function purgeRelatedData(type, data) {
       }
     });
     if (state.absenceTracking) delete state.absenceTracking[sid];
+    Object.keys(state.studentLateness || {}).forEach(date => {
+      const dayRec = state.studentLateness[date];
+      if (dayRec && Object.prototype.hasOwnProperty.call(dayRec, sid)) {
+        delete dayRec[sid];
+        if (Object.keys(dayRec).length === 0) delete state.studentLateness[date];
+      }
+    });
   } else if (type === 'class') {
     const cid = data.id;
     Object.keys(state.timetable || {}).forEach(key => {
@@ -1467,7 +1515,7 @@ function openCloseYearModal() {
     <p style="font-size:14px;color:var(--text-medium);line-height:1.9;">
       سيتم تنفيذ الخطوات التالية بالترتيب:<br>
       1️⃣ تصدير نسخة أرشيفية كاملة (JSON) لكل بيانات السنة الحالية تلقائياً.<br>
-      2️⃣ إعادة تعيين: الغياب اليومي، ساعات الدراسة الشهرية، ساعات الاستدراك، استعمال الزمن، جدول فراغ الأساتذة، وسجل/ترقيم إشعارات الغياب (يبدأ الترقيم من 01 من جديد).<br>
+      2️⃣ إعادة تعيين: الغياب اليومي، ساعات الدراسة الشهرية، استعمال الزمن، جدول فراغ الأساتذة، سجل التأخر، وسجل/ترقيم إشعارات الغياب (يبدأ الترقيم من 01 من جديد).<br>
       3️⃣ مسح معدلات الفصول الثلاثة (ف1، ف2، ف3) لكل التلاميذ للبدء من جديد.<br>
       4️⃣ الإبقاء على: الأقسام، التلاميذ، الأساتذة، والمواد كما هي دون أي تغيير.<br><br>
       <b style="color:#e53e3e;">⚠️ هذا الإجراء لا يمكن التراجع عنه إلا عبر استيراد ملف الأرشيف الذي سيُصدَّر تلقائياً في الخطوة الأولى.</b>
@@ -1482,9 +1530,9 @@ function openCloseYearModal() {
 function resetYearlyOperationalData() {
   state.attendance = {};
   state.monthlyStudyHours = {};
-  state.catchupHours = {};
   state.timetable = {};
   state.teacherFreeSlots = {};
+  state.studentLateness = {};
   state.classNoticeCounters = {};
   state.absenceNotices = [];
   state.absenceTracking = {};
@@ -1787,7 +1835,7 @@ function renderClasses() {
   let classRows = state.classes.map(c => `
     <tr><td><b>${escapeHtml(c.name)}</b></td><td>${studentsOf(c.id).length}</td>
     <td><select onchange="setClassLevel('${c.id}', this.value)">${LEVEL_OPTS.map(lv => `<option value="${lv}" ${c.level===lv?'selected':''}>${lv||'—'}</option>`).join('')}</select></td>
-    <td><button class="btn small secondary" onclick="renderBulkCardsModal('${c.id}')">🖨 بطاقات</button> <button class="btn small secondary" onclick="renderClassRosterModal('${c.id}')">📋 قائمة القسم</button> <button class="btn small secondary" onclick="renderHealthListModal('${c.id}')">🏥 الحالات الصحية</button> <button class="btn small secondary" onclick="renderSocialListModal('${c.id}')">👪 الحالات الاجتماعية</button> <button class="btn small danger" onclick="delClass('${c.id}')">حذف</button></td></tr>
+    <td><button class="btn small secondary" onclick="renderBulkCardsModal('${c.id}')">🖨 بطاقات</button> <button class="btn small secondary" onclick="renderClassQrModal('${c.id}')">📱 QR</button> <button class="btn small secondary" onclick="renderClassQrListModal('${c.id}')">🔖 قائمة QR</button> <button class="btn small secondary" onclick="renderClassRosterModal('${c.id}')">📋 قائمة القسم</button> <button class="btn small secondary" onclick="renderHealthListModal('${c.id}')">🏥 الحالات الصحية</button> <button class="btn small secondary" onclick="renderSocialListModal('${c.id}')">👪 الحالات الاجتماعية</button> <button class="btn small danger" onclick="delClass('${c.id}')">حذف</button></td></tr>
   `).join('');
 
   let filtered = state.students;
@@ -2156,6 +2204,28 @@ function getAbsenceStage(streakDays) {
   if (streakDays >= ABSENCE_STAGE_THRESHOLDS.notice1) return 'notice1';
   return null;
 }
+function getApproachingThresholdList() {
+  const thresholds = [
+    { key: 'notice1', value: ABSENCE_STAGE_THRESHOLDS.notice1 },
+    { key: 'notice2', value: ABSENCE_STAGE_THRESHOLDS.notice2 },
+    { key: 'excuse', value: ABSENCE_STAGE_THRESHOLDS.excuse },
+    { key: 'expulsion', value: ABSENCE_STAGE_THRESHOLDS.expulsion }
+  ];
+  const result = [];
+  state.students.forEach(s => {
+    const status = getNoticeStatusForStudent(s);
+    if (!status.streak) return;
+    const lastRank = status.lastIssuedStage ? ABSENCE_STAGE_ORDER[status.lastIssuedStage] : 0;
+    const next = thresholds.find(t => t.value > status.streak && ABSENCE_STAGE_ORDER[t.key] > lastRank);
+    if (next) {
+      const remaining = next.value - status.streak;
+      if (remaining > 0 && remaining <= 2) {
+        result.push({ s, streak: status.streak, remaining, nextLabel: ABSENCE_STAGE_LABELS[next.key].label });
+      }
+    }
+  });
+  return result;
+}
 function getNoticeStatusForStudent(student) {
   const streak = getConsecutiveFullAbsenceDays(student);
   const stage = getAbsenceStage(streak);
@@ -2168,6 +2238,15 @@ function getNoticeStatusForStudent(student) {
 function renderAbsenceNotices() {
   const autoIssued = autoIssuePendingNotices();
   if (autoIssued.length) saveState();
+  const approaching = getApproachingThresholdList();
+  const approachingHtml = approaching.length ? `
+    <div class="card" style="border-right:6px solid #ecc94b;">
+      <h2>⏳ تلاميذ يقتربون من عتبة إشعار</h2>
+      <div class="table-responsive"><table><thead><tr><th>القسم</th><th>التلميذ</th><th>الغياب الحالي</th><th>متبقٍ</th><th>العتبة القادمة</th></tr></thead><tbody>
+      ${approaching.map(a => `<tr><td>${className(a.s.classId)}</td><td>${escapeHtml(displayName(a.s))}</td><td>${a.streak} يوم</td><td><b>${a.remaining}</b> ${a.remaining===1?'يوم':'يومان'}</td><td>${a.nextLabel}</td></tr>`).join('')}
+      </tbody></table></div>
+    </div>
+  ` : '';
   const filterClassId = absenceNoticeState.filterClassId;
   let list = state.students;
   if (filterClassId) list = list.filter(s => s.classId === filterClassId);
@@ -2215,6 +2294,7 @@ function renderAbsenceNotices() {
   }).join('');
 
   return `
+    ${approachingHtml}
     <div class="card">
       <h2>🚨 التلاميذ في مرحلة إشعار حالياً</h2>
       <p style="font-size:13px;color:var(--text-medium);margin-bottom:8px;line-height:1.8;">
@@ -2548,31 +2628,29 @@ function exportGradesExcel() {
   toast('✅ تم تصدير Excel');
 }
 
+const TIME_SLOTS = [
+  '08:00 - 09:00', '09:00 - 10:00', '10:00 - 11:00', '11:00 - 12:00',
+  '14:00 - 15:00', '15:00 - 16:00', '16:00 - 17:00'
+];
 function renderTimetable() {
   if (!currentTtClassId && state.classes.length) currentTtClassId = state.classes[0].id;
-  let headerSlots = '';
-  for (let i = 1; i <= state.ttSlots; i++) headerSlots += `<th>الحصة ${i}</th>`;
-  let tableRows = state.ttDays.map(day => {
-    let cells = `<td><b>${day}</b></td>`;
-    for (let slot = 1; slot <= state.ttSlots; slot++) {
+  const dayHeaders = state.ttDays.map(day => `<th>${escapeHtml(day)}</th>`).join('');
+  let tableRows = '';
+  for (let slot = 1; slot <= state.ttSlots; slot++) {
+    if (slot === 5) {
+      tableRows += `<tr><td colspan="${state.ttDays.length + 1}" style="text-align:center;background:var(--bg-alt,#f1f5f9);font-weight:700;">☕ استراحة الغداء — 12:00 إلى 14:00</td></tr>`;
+    }
+    const cells = state.ttDays.map(day => {
       const key = `${currentTtClassId}_${day}_${slot}`;
       const data = state.timetable[key];
       if (data && (data.subjectId || data.teacherId)) {
-        cells += `<td><b>${subjectName(data.subjectId)}</b><br><span style="font-size:12px;color:var(--text-medium);">${teacherName(data.teacherId)}</span></td>`;
-      } else {
-        cells += `<td><span style="color:var(--text-light);">—</span></td>`;
+        return `<td><b>${subjectName(data.subjectId)}</b><br><span style="font-size:12px;color:var(--text-medium);">${teacherName(data.teacherId)}</span></td>`;
       }
-    }
-    return `<tr>${cells}</tr>`;
-  }).join('');
+      return `<td><span style="color:var(--text-light);">—</span></td>`;
+    }).join('');
+    tableRows += `<tr><td><b>${TIME_SLOTS[slot - 1] || ('الحصة ' + slot)}</b></td>${cells}</tr>`;
+  }
   const classOpts = state.classes.map(c => `<option value="${c.id}" ${c.id===currentTtClassId?'selected':''}>${c.name}</option>`).join('');
-  const classCatchup = state.catchupHours[currentTtClassId] || {};
-  const catchupInputs = state.ttDays.map(day => `
-    <div class="field">
-      <label>${day}</label>
-      <input type="number" min="0" max="7" value="${classCatchup[day] || ''}" onchange="setCatchupHours('${day}', this.value)" placeholder="0">
-    </div>
-  `).join('');
   return `
     <div class="card"><h2>📅 جدول التوقيت</h2>
       <div class="row">
@@ -2580,117 +2658,59 @@ function renderTimetable() {
         <button class="btn" onclick="editTimetable()">✏️ تعديل</button>
         <button class="btn secondary" onclick="exportTimetablePdf()">📄 PDF</button>
       </div>
-      <div id="timetablePrintArea">${schoolMetaLine()}<div class="table-responsive"><table style="text-align:center;"><thead><tr><th>اليوم</th>${headerSlots}</tr></thead><tbody>${tableRows || `<tr><td colspan="${state.ttSlots+1}" class="empty">لا توجد بيانات</td></tr>`}</tbody></table></div></div>
+      <div id="timetablePrintArea">${schoolMetaLine()}<div class="table-responsive"><table style="text-align:center;"><thead><tr><th>التوقيت</th>${dayHeaders}</tr></thead><tbody>${tableRows || `<tr><td colspan="${state.ttDays.length + 1}" class="empty">لا توجد بيانات</td></tr>`}</tbody></table></div></div>
     </div>
 
     <div class="card">
-      <h2>🕐 ساعات الاستدراك (${className(currentTtClassId)})</h2>
-      <p style="font-size:13px;color:var(--text-medium);margin-bottom:8px;">أدخل عدد ساعات الاستدراك لكل يوم لهذا القسم (0 إلى 7 ساعات).</p>
-      <div class="row">${catchupInputs}</div>
-    </div>
-
-    <div class="card">
-      <h2>📋 جدول أستاذ (الحصص + الفراغ)</h2>
-      <p style="font-size:13px;color:var(--text-medium);margin-bottom:8px;">جدول محسوب تلقائياً من استعمال الزمن لكل الأقسام — يجمع حصص الأستاذ المسندة وأوقات فراغه في صفحة واحدة قابلة للطباعة.</p>
-      ${renderTeacherSchedule()}
-    </div>
-
-    <div class="card">
-      <h2>🧑‍🏫 جدول فراغ الأساتذة</h2>
-      <p style="font-size:13px;color:var(--text-medium);margin-bottom:8px;">جدول يدوي — عدّل خانة كل أستاذ في كل يوم لتدوين حصص فراغه.</p>
-      <div class="row"><button class="btn secondary" onclick="exportTeacherFreePdf()">🖨️ طباعة</button></div>
-      <div id="teacherFreePrintArea">${schoolMetaLine()}${renderTeacherFreeTable()}</div>
+      <h2>🧑‍🏫 جدول فراغ الأساتذة (يدوي)</h2>
+      ${renderManualFreeSlotsCard()}
     </div>
   `;
 }
-async function setCatchupHours(day, value) {
-  if (!currentTtClassId) return;
-  const hours = Math.max(0, Math.min(7, Number(value) || 0));
-  if (!state.catchupHours[currentTtClassId]) state.catchupHours[currentTtClassId] = {};
-  if (hours > 0) state.catchupHours[currentTtClassId][day] = hours;
-  else delete state.catchupHours[currentTtClassId][day];
-  await saveState(); render();
-}
-// ---------- جدول أستاذ محسوب تلقائياً (حصص + فراغ) ----------
-function getTeacherScheduleGrid(teacherId) {
-  const grid = {};
-  state.ttDays.forEach(day => {
-    grid[day] = {};
-    for (let slot = 1; slot <= state.ttSlots; slot++) {
-      let found = null;
-      for (const cls of state.classes) {
-        const data = state.timetable[`${cls.id}_${day}_${slot}`];
-        if (data && data.teacherId === teacherId) {
-          found = { className: cls.name, subjectName: subjectName(data.subjectId) };
-          break;
-        }
-      }
-      grid[day][slot] = found;
+// ---------- جدول فراغ الأساتذة اليدوي (مستقل عن استعمال الزمن) ----------
+function renderManualFreeSlotsCard() {
+  if (!state.teachers.length) {
+    return `<p style="color:var(--text-medium);font-size:14px;">أضف أساتذة أولاً من تبويب "🧑‍🏫 الأساتذة والمواد" لتتمكن من تعبئة جدول فراغهم.</p>`;
+  }
+  if (!currentFreeSlotTeacherId || !state.teachers.some(t => t.id === currentFreeSlotTeacherId)) currentFreeSlotTeacherId = state.teachers[0].id;
+  const teacherOpts = state.teachers.map(t => `<option value="${t.id}" ${t.id===currentFreeSlotTeacherId?'selected':''}>${escapeHtml(t.name)}</option>`).join('');
+  const rec = (state.teacherFreeSlots[currentFreeSlotTeacherId]) || {};
+  const dayHeaders = state.ttDays.map(d => `<th>${escapeHtml(d)}</th>`).join('');
+  let rows = '';
+  for (let i = 0; i < TIME_SLOTS.length; i++) {
+    const slotNum = i + 1;
+    if (slotNum === 5) {
+      rows += `<tr><td colspan="${state.ttDays.length + 1}" style="text-align:center;background:var(--bg-alt,#f1f5f9);font-weight:700;">☕ استراحة الغداء — 12:00 إلى 14:00</td></tr>`;
     }
-  });
-  return grid;
-}
-function renderTeacherSchedule() {
-  if (!state.teachers.length) return `<p style="color:var(--text-medium);font-size:14px;">أضف أساتذة أولاً من تبويب "الأساتذة والمواد".</p>`;
-  if (!currentScheduleTeacherId || !state.teachers.some(t => t.id === currentScheduleTeacherId)) currentScheduleTeacherId = state.teachers[0].id;
-  const grid = getTeacherScheduleGrid(currentScheduleTeacherId);
-  let busyCount = 0, freeCount = 0;
-  let headerSlots = '';
-  for (let i = 1; i <= state.ttSlots; i++) headerSlots += `<th>الحصة ${i}</th>`;
-  let rows = state.ttDays.map(day => {
-    let cells = `<td><b>${day}</b></td>`;
-    for (let slot = 1; slot <= state.ttSlots; slot++) {
-      const cell = grid[day][slot];
-      if (cell) {
-        busyCount++;
-        cells += `<td><b>${cell.className}</b><br><span style="font-size:12px;color:var(--text-medium);">${cell.subjectName}</span></td>`;
-      } else {
-        freeCount++;
-        cells += `<td><span class="badge success">فراغ</span></td>`;
-      }
-    }
-    return `<tr>${cells}</tr>`;
-  }).join('');
-  const teacherOpts = state.teachers.map(t => `<option value="${t.id}" ${t.id===currentScheduleTeacherId?'selected':''}>${t.name}</option>`).join('');
+    const cells = state.ttDays.map(day => {
+      const dayRec = rec[day] || {};
+      const val = dayRec[slotNum] || '';
+      return `<td><input type="text" value="${escapeHtml(val)}" placeholder="—" style="width:100%;min-width:110px;border:1px solid var(--secondary);border-radius:6px;padding:4px 6px;font-family:'Cairo',sans-serif;font-size:12px;" onchange="setManualFreeSlot('${currentFreeSlotTeacherId}','${day}',${slotNum}, this.value)"></td>`;
+    }).join('');
+    rows += `<tr><td><b>${TIME_SLOTS[i]}</b></td>${cells}</tr>`;
+  }
   return `
     <div class="row">
-      <div class="field"><label>الأستاذ</label><select id="scheduleTeacher" onchange="currentScheduleTeacherId=this.value; render();">${teacherOpts}</select></div>
-      <button class="btn secondary" onclick="exportTeacherSchedulePdf()">🖨️ طباعة</button>
+      <div class="field"><label>الأستاذ</label><select id="freeSlotTeacher" onchange="currentFreeSlotTeacherId=this.value; render();">${teacherOpts}</select></div>
+      <button class="btn secondary" onclick="exportManualFreeSlotsPdf()">🖨️ طباعة</button>
     </div>
-    <p style="font-size:12px;color:var(--text-medium);margin-bottom:8px;">📊 عدد الحصص المسندة: ${busyCount} — عدد حصص الفراغ: ${freeCount}</p>
-    <div id="teacherSchedulePrintArea">${schoolMetaLine()}<div class="table-responsive"><table style="text-align:center;"><thead><tr><th>اليوم</th>${headerSlots}</tr></thead><tbody>${rows}</tbody></table></div></div>
+    <div id="teacherFreePrintArea">${schoolMetaLine()}<div class="table-responsive"><table style="text-align:center;"><thead><tr><th>التوقيت</th>${dayHeaders}</tr></thead><tbody>${rows}</tbody></table></div></div>
   `;
 }
-function exportTeacherSchedulePdf() {
-  const area = document.getElementById('teacherSchedulePrintArea');
-  if (!area) return toast('لا يوجد محتوى');
-  const t = state.teachers.find(tc => tc.id === currentScheduleTeacherId);
-  toast('⏳ جاري تحضير الطباعة...');
-  html2pdf().set({ margin: 8, filename: `جدول_الأستاذ_${(t ? t.name : 'استاذ').replace(/\s+/g,'_')}.pdf`, image: { type: 'jpeg', quality: 0.98 }, html2canvas: { scale: 2 }, jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' } }).from(area).save().catch(() => toast('⚠️ خطأ في الطباعة'));
-}
-function renderTeacherFreeTable() {
-  if (!state.teachers.length) return `<p style="color:var(--text-medium);font-size:14px;">أضف أساتذة أولاً من تبويب "الأساتذة والمواد".</p>`;
-  const dayHeaders = state.ttDays.map(d => `<th>${d}</th>`).join('');
-  const rows = state.teachers.map(t => {
-    const rec = state.teacherFreeSlots[t.id] || {};
-    const cells = state.ttDays.map(day => {
-      const val = rec[day] || '(ستملأ لاحقاً)';
-      return `<td><input type="text" value="${val}" style="width:100%;min-width:110px;border:1px solid var(--secondary);border-radius:6px;padding:4px 6px;font-family:'Cairo',sans-serif;font-size:12px;" onchange="setTeacherFreeSlot('${t.id}','${day}', this.value)"></td>`;
-    }).join('');
-    return `<tr><td><b>${t.name}</b></td>${cells}</tr>`;
-  }).join('');
-  return `<div class="table-responsive"><table><thead><tr><th>الأستاذ</th>${dayHeaders}</tr></thead><tbody>${rows}</tbody></table></div>`;
-}
-async function setTeacherFreeSlot(teacherId, day, value) {
+async function setManualFreeSlot(teacherId, day, slot, value) {
+  const clean = (value || '').trim();
   if (!state.teacherFreeSlots[teacherId]) state.teacherFreeSlots[teacherId] = {};
-  state.teacherFreeSlots[teacherId][day] = value;
+  if (!state.teacherFreeSlots[teacherId][day]) state.teacherFreeSlots[teacherId][day] = {};
+  if (clean) state.teacherFreeSlots[teacherId][day][slot] = clean;
+  else delete state.teacherFreeSlots[teacherId][day][slot];
   await saveState();
 }
-function exportTeacherFreePdf() {
+function exportManualFreeSlotsPdf() {
   const area = document.getElementById('teacherFreePrintArea');
   if (!area) return toast('لا يوجد محتوى');
+  const t = state.teachers.find(tc => tc.id === currentFreeSlotTeacherId);
   toast('⏳ جاري تحضير الطباعة...');
-  html2pdf().set({ margin: 8, filename: `جدول_فراغ_الأساتذة.pdf`, image: { type: 'jpeg', quality: 0.98 }, html2canvas: { scale: 2 }, jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' } }).from(area).save().catch(() => toast('⚠️ خطأ في الطباعة'));
+  html2pdf().set({ margin: 8, filename: `جدول_فراغ_${(t ? t.name : 'استاذ').replace(/\s+/g,'_')}.pdf`, image: { type: 'jpeg', quality: 0.98 }, html2canvas: { scale: 2 }, jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' } }).from(area).save().catch(() => toast('⚠️ خطأ في الطباعة'));
 }
 
 // ============================================================
@@ -3257,6 +3277,14 @@ function getInitials(s) {
   const last = (s.lastName || '').trim().charAt(0) || '';
   return (first + last) || '؟';
 }
+function countLatenessThisMonth(studentId) {
+  const month = currentMonthISO();
+  let count = 0;
+  Object.keys(state.studentLateness || {}).forEach(date => {
+    if (date.startsWith(month) && state.studentLateness[date] && state.studentLateness[date][studentId]) count++;
+  });
+  return count;
+}
 function viewCard(id) {
   const s = state.students.find(st => st.id === id);
   if (!s) return;
@@ -3266,6 +3294,7 @@ function viewCard(id) {
   const motherLine = [s.motherName, s.motherPhone].filter(Boolean).join(' · ') || '—';
   const annualAvg = computeAnnualAvg(s);
   const avgLine = `ف1: ${s.avgT1||'—'} · ف2: ${s.avgT2||'—'} · ف3: ${s.avgT3||'—'} · <b>السنوي: ${annualAvg !== null ? annualAvg : '—'}</b>`;
+  const latenessCount = countLatenessThisMonth(s.id);
   const html = `
     <h2>🪪 بطاقة التلميذ</h2>
     ${schoolMetaLine()}
@@ -3282,11 +3311,14 @@ function viewCard(id) {
         <div><b>💰 المنحة:</b> ${scholarshipBadge}</div>
         <div><b>🩺 الصحة:</b> ${healthValue}</div>
         <div>📊 ${avgLine}</div>
+        ${latenessCount > 0 ? `<div><b>⏱ عدد مرات التأخر هذا الشهر:</b> ${latenessCount}</div>` : ''}
         <div style="margin-top:6px;font-size:12px;color:var(--text-medium);"><b>العنوان:</b> ${s.address||'—'}</div>
       </div>
     </div>
     <div style="display:flex;gap:10px;margin-top:16px;flex-wrap:wrap;">
-      <button class="btn" onclick="window.print()">🖨 طباعة</button>
+      <button class="btn" onclick="openAbsenceSlotsModal('${s.id}')">📝 تسجيل غياب</button>
+      <button class="btn" onclick="recordLateness('${s.id}')">⏱ تسجيل تأخر</button>
+      <button class="btn secondary" onclick="window.print()">🖨 طباعة</button>
       <button class="btn secondary" onclick="exportModalToPdf('بطاقة_${escapeHtml(displayName(s)).replace(/\s+/g,'_')}.pdf')">📄 PDF</button>
       <button class="btn secondary" onclick="closeModal()">إغلاق</button>
     </div>
@@ -3322,6 +3354,48 @@ function renderBulkCardsModal(classId) {
     <div style="display:flex;gap:10px;margin-top:16px;flex-wrap:wrap;">
       <button class="btn" onclick="window.print()">🖨 طباعة</button>
       <button class="btn secondary" onclick="exportModalToPdf('بطاقات_${className(classId).replace(/\s+/g,'_')}.pdf')">📄 PDF</button>
+    </div>
+  `);
+}
+function renderClassQrModal(classId) {
+  const list = studentsOf(classId);
+  if (!list.length) return toast('لا يوجد تلاميذ');
+  const cardsHtml = list.map(s => `
+    <div class="qr-only-card">
+      <img src="${qrUrlFor(s)}">
+      <div class="qname">${escapeHtml(displayName(s))}</div>
+      ${s.regNumber ? `<div class="qreg">رقم التعريف: ${escapeHtml(s.regNumber)}</div>` : ''}
+    </div>
+  `).join('');
+  openModal(`
+    <h2>📱 قائمة QR: ${escapeHtml(className(classId))}</h2>
+    ${schoolMetaLine()}
+    <div class="qr-only-grid">${cardsHtml}</div>
+    <div style="display:flex;gap:10px;margin-top:16px;flex-wrap:wrap;">
+      <button class="btn" onclick="window.print()">🖨 طباعة</button>
+      <button class="btn secondary" onclick="exportModalToPdf('QR_${className(classId).replace(/\s+/g,'_')}.pdf')">📄 PDF</button>
+      <button class="btn secondary" onclick="closeModal()">إغلاق</button>
+    </div>
+  `);
+}
+function renderClassQrListModal(classId) {
+  const list = studentsOf(classId);
+  if (!list.length) return toast('لا يوجد تلاميذ');
+  const rows = list.map(s => `
+    <tr>
+      <td>${escapeHtml(s.firstName || '—')}</td>
+      <td>${escapeHtml(s.lastName || '—')}</td>
+      <td><img src="${qrUrlFor(s)}" style="width:55px;height:55px;"></td>
+    </tr>
+  `).join('');
+  openModal(`
+    <h2>🔖 قائمة QR: ${escapeHtml(className(classId))}</h2>
+    ${schoolMetaLine()}
+    <div class="table-responsive"><table style="text-align:center;"><thead><tr><th>الاسم</th><th>اللقب</th><th>QR</th></tr></thead><tbody>${rows}</tbody></table></div>
+    <div style="display:flex;gap:10px;margin-top:16px;flex-wrap:wrap;">
+      <button class="btn" onclick="window.print()">🖨 طباعة</button>
+      <button class="btn secondary" onclick="exportModalToPdf('قائمة_QR_${className(classId).replace(/\s+/g,'_')}.pdf')">📄 PDF</button>
+      <button class="btn secondary" onclick="closeModal()">إغلاق</button>
     </div>
   `);
 }
@@ -3413,7 +3487,7 @@ function editTimetable() {
       const tchOpts = `<option value="">—</option>` + state.teachers.map(t => `<option value="${t.id}" ${t.id===data.teacherId?'selected':''}>${t.name}</option>`).join('');
       grid += `
         <div class="tt-cell">
-          <h4>${day} - حصة ${slot}</h4>
+          <h4>${day} - ${TIME_SLOTS[slot - 1] || ('حصة ' + slot)}</h4>
           <div class="field"><label>المادة</label><select class="tt-sub" data-day="${day}" data-slot="${slot}">${subOpts}</select></div>
           <div class="field"><label>الأستاذ</label><select class="tt-tch" data-day="${day}" data-slot="${slot}">${tchOpts}</select></div>
         </div>
@@ -3484,16 +3558,9 @@ function toggleScanner(evt) {
           stopScanner();
           container.style.display = 'none';
           if (btn) btn.textContent = '📷 تشغيل الكاميرا';
-          let slotsHtml = '';
-          for (let i = 1; i <= state.ttSlots; i++) {
-            slotsHtml += `<button class="slot-btn" onclick="registerAbsenceBySlot('${student.id}', ${i}); closeModal();">⏰ الحصة ${i} (ساعة واحدة)</button>`;
-          }
-          openModal(`
-            <h2>📝 تسجيل غياب</h2>
-            <p><b>${escapeHtml(displayName(student))}</b> ${student.healthCondition ? `<span class="health-alert">🩺 ${escapeHtml(student.healthCondition)}</span>` : ''}</p>
-            ${slotsHtml}
-            <button class="btn secondary" onclick="closeModal()">إلغاء</button>
-          `);
+          viewCard(student.id);
+        } else {
+          toast('⚠️ لم يُعثر على تلميذ بهذا الرمز');
         }
         isProcessingScan = false;
       }
@@ -3511,6 +3578,36 @@ function stopScanner() {
   if (html5QrcodeScanner) {
     try { html5QrcodeScanner.stop().then(() => { html5QrcodeScanner = null; }).catch(() => { html5QrcodeScanner = null; }); } catch(e) { html5QrcodeScanner = null; }
   }
+}
+function openAbsenceSlotsModal(studentId) {
+  const student = state.students.find(s => s.id === studentId);
+  if (!student) return;
+  let slotsHtml = '';
+  for (let i = 1; i <= state.ttSlots; i++) {
+    slotsHtml += `<button class="slot-btn" onclick="registerAbsenceBySlot('${student.id}', ${i}); closeModal();">⏰ الحصة ${i} (ساعة واحدة)</button>`;
+  }
+  openModal(`
+    <h2>📝 تسجيل غياب</h2>
+    <p><b>${escapeHtml(displayName(student))}</b> ${student.healthCondition ? `<span class="health-alert">🩺 ${escapeHtml(student.healthCondition)}</span>` : ''}</p>
+    ${slotsHtml}
+    <button class="btn secondary" onclick="closeModal()">إلغاء</button>
+  `);
+}
+async function recordLateness(studentId) {
+  const student = state.students.find(s => s.id === studentId);
+  if (!student) return;
+  const now = new Date();
+  const date = todayISO();
+  const time = String(now.getHours()).padStart(2,'0') + ':' + String(now.getMinutes()).padStart(2,'0');
+  if (!state.studentLateness[date]) state.studentLateness[date] = {};
+  state.studentLateness[date][studentId] = { time, timestamp: now.getTime() };
+  await saveState();
+  openModal(`
+    <h2>✅ تم تسجيل التأخر</h2>
+    <p>تم تسجيل تأخر <b>${escapeHtml(displayName(student))}</b> في الساعة <b>${time}</b>.</p>
+    <button class="btn secondary" onclick="closeModal()">إغلاق</button>
+  `);
+  toast(`✅ تم تسجيل تأخر ${displayName(student)} في ${time}`);
 }
 async function registerAbsenceBySlot(studentId, slotNumber) {
   const student = state.students.find(s => s.id === studentId);

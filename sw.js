@@ -11,7 +11,7 @@
 // الهدف: تخزين الصفحة والمكتبات المستخدمة محلياً كي يفتح التطبيق فوراً حتى بلا إنترنت إطلاقاً
 // لا يتدخل إطلاقاً في طلبات Firestore/Firebase حتى لا يؤثر على المزامنة الحية
 
-const CACHE_NAME = 'sijil-cache-v3';
+const CACHE_NAME = 'sijil-cache-v5';
 const CORE_ASSETS = [
   './',
   './index.html'
